@@ -18,7 +18,11 @@ let failed = 0;
 
 function assert(name, condition, detail = '') {
   results.push(`${condition ? 'ok  ' : 'FAIL'} ${name}${condition ? '' : `  ← ${detail}`}`);
-  if (!condition) failed += 1;
+  if (!condition) {
+    failed += 1;
+    // 失败即时打印：脚本中途抛错时 finish() 跑不到，否则失败原因会丢
+    console.log(`  FAIL ${name}  ← ${detail}`);
+  }
 }
 
 function makeReq(method, url, body) {
@@ -779,6 +783,8 @@ function finish(workspace) {
 }
 
 main().catch((error) => {
+  // 中途抛错时把已收集的断言结果打出来，便于定位是哪一项之后炸的
+  for (const line of results) console.log(`  ${line}`);
   console.error(error);
   process.exit(1);
 });
