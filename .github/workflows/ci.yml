@@ -1,0 +1,30 @@
+# CI 草稿（Assistant 起草，2026-11-20；待 Coding 复核平台性）
+#
+# 为什么先用 windows-latest：本机实测口径是 Windows（`scripts/test-host.mjs` 里用
+# `USERPROFILE`/`TEMP` 兜底、绝对路径用例写的是 `C:\Windows\win.ini`、断言 400/403）。
+# 这些用例在 ubuntu 上未必等价，先用 windows-latest 保证一上来不红。
+# Coding 确认 verify 平台无关（或把 test-host.mjs 的平台口径改成可移植）后，可改回
+# ubuntu-latest 省 CI 时间；改回前先本地/隔离环境跑一遍再合。
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (lockfile enforced)
+        run: npm ci
+
+      - name: Typecheck + build + bundle contract + host/client tests
+        run: npm run verify

@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2024"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "outDir": "lib",
+    "rootDir": "src",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "noEmitOnError": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationDir": "lib/types",
+    "sourceMap": true
+  },
+  "include": ["src/index.ts", "src/host/**/*.ts"],
+  "exclude": ["node_modules", "lib"]
+}

@@ -1,0 +1,4 @@
+- insert:
+    - id: file-review
+      name: dsh-file-review
+      config: {}

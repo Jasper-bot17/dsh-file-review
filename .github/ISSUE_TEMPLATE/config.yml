@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用与安装文档
+    url: https://github.com/Jasper-bot17/dsh-file-review#安装
+    about: 安装、重启、禁用校验等步骤先看 README；文档没解决再开 issue。
+  - name: 安全漏洞（私下报告）
+    url: https://github.com/Jasper-bot17/dsh-file-review/security/advisories/new
+    about: 安全漏洞请勿公开开 issue，走私密报告通道。

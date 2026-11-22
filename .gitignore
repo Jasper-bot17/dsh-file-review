@@ -1,0 +1,10 @@
+node_modules/
+npm-debug.log*
+*.log
+.DS_Store
+Thumbs.db
+
+# 运行期产物（保留 lib/ 供免构建安装，参考官方插件指南建议提交构建产物）
+*.tsbuildinfo
+lib/**/*.map
+test-tmp/

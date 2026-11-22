@@ -1,0 +1,73 @@
+{
+  "name": "dsh-file-review",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 文件预览与批注插件：在 GUI 里预览工作区文件、直接编辑保存、选中文字批注，一键把批注发给当前会话的 AI 去改。",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml",
+    "src",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "license": "MIT",
+  "author": "Jasper-bot17",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "file-preview",
+    "annotation",
+    "review"
+  ],
+  "engines": {
+    "node": ">=22.13 || >=24"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\"",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.client.json",
+    "build": "npm run clean && tsc -p tsconfig.json && tsc -p tsconfig.client.json && tsdown",
+    "check": "node scripts/check-client-bundle.mjs",
+    "test:host": "node scripts/test-host.mjs",
+    "test:client": "node scripts/test-client-bundle.mjs",
+    "test": "npm run build && npm run test:host && npm run test:client",
+    "verify": "npm run build && npm run check && npm run test:host && npm run test:client"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "external": [
+        "react",
+        "react/jsx-runtime"
+      ]
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.2",
+    "react": "^19.2.0",
+    "tsdown": "^0.23.7",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.5.438"
+  }
+}
