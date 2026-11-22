@@ -1,4 +1,4 @@
-# dsh-file-review
+﻿# dsh-file-review
 
 在 DeepSeek Harness 的 Web GUI 里**预览 AI 产出的文件、选中直接改或加批注、把批注一键发回给 AI**，让「看一遍 → 指出来 → AI 改」变成一次闭环，而不是反复重做。
 
@@ -6,7 +6,7 @@
   <img src="docs/assets/hero.png" alt="看得到，改得动 —— 批注直接发给 AI" width="880">
 </p>
 
-> 状态：**S1 文本链路 已完成真机跑通**（2026-11-20）；**S2 Office / PDF / 图片预览与批注 已完成验收**（2026-11-22：docx/xlsx/pptx/pdf 四格式预览+批注、冻结窗格、大表截断、加密错误态、缩放文字层偏移 0.03px 均通过）；**S4 开源发布进行中**。验证细节见 [CHANGELOG](CHANGELOG.md#验证记录)。
+> 状态：**S1 文本链路 已完成真机跑通**（2026-11-20）；**S2 Office / PDF / 图片预览与批注 已完成验收**（2026-11-22：docx/xlsx/pptx/pdf 四格式预览+批注、冻结窗格、大表截断、加密错误态、缩放文字层偏移 0.03px 均通过）；**S4 开源发布 已完成**（2026-11-22 发布 [v0.1.0](https://github.com/Jasper-bot17/dsh-file-review/releases/tag/v0.1.0)）。验证细节见 [CHANGELOG](CHANGELOG.md#验证记录)。
 
 ## 为什么做
 
@@ -163,7 +163,7 @@ dsh plugin --profile desktop add "C:\...\dsh-file-review"
 | S1 | 文本类预览 / 编辑 / 批注 / 发给 AI 全链路 | 已完成（2026-11-20 真机验收） |
 | S2 | Office / PDF / 图片只读预览 + 批注 | 已完成（2026-11-22 验收：四格式、冻结、大表截断、加密错误态、缩放偏移 ≤2px） |
 | S3 | diff 高亮、批注持久化、多文件、快捷键 | 计划 |
-| S4 | 开源发布：文档、GIF、CI、Release、issue 模板 | 进行中（文档/CI/Release notes 已备，发布待仓库与邮箱） |
+| S4 | 开源发布：文档、GIF、CI、Release、issue 模板 | **已完成**（2026-11-22 发布 v0.1.0） |
 
 ## 文档
 
