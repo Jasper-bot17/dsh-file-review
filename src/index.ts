@@ -332,6 +332,10 @@ async function resolveWorkspacePath(
     throw new ReviewError('BAD_WORKSPACE', '工作区不能是磁盘根目录', 403);
   }
 
+  // 会话里给的工作区可能是 8.3 短路径（如 RUNNER~1）或经过符号链接，
+  // 与 realpath(目标) 直接比较会把合法文件误判成越界，这里统一取真实根。
+  const workspaceReal = await fsp.realpath(workspace).catch(() => workspace);
+
   const absolute = path.resolve(workspace, normalized);
   if (!isWithin(workspace, absolute)) throw new ReviewError('OUTSIDE_WORKSPACE', '路径越出工作区', 403);
 
@@ -340,7 +344,9 @@ async function resolveWorkspacePath(
     const stat = await fsp.stat(absolute).catch(() => null);
     if (!stat) throw new ReviewError('NOT_FOUND', `文件不存在：${normalized}`, 404);
     const real = await fsp.realpath(absolute);
-    if (!isWithin(workspace, real)) throw new ReviewError('OUTSIDE_WORKSPACE', '路径越出工作区', 403);
+    if (!isWithin(workspace, real) && !isWithin(workspaceReal, real)) {
+      throw new ReviewError('OUTSIDE_WORKSPACE', '路径越出工作区', 403);
+    }
     return real;
   }
 
@@ -349,7 +355,9 @@ async function resolveWorkspacePath(
   const parentReal = await fsp.realpath(parent).catch(() => {
     throw new ReviewError('NOT_FOUND', `目录不存在：${path.relative(workspace, parent) || '.'}`, 404);
   });
-  if (!isWithin(workspace, parentReal)) throw new ReviewError('OUTSIDE_WORKSPACE', '路径越出工作区', 403);
+  if (!isWithin(workspace, parentReal) && !isWithin(workspaceReal, parentReal)) {
+    throw new ReviewError('OUTSIDE_WORKSPACE', '路径越出工作区', 403);
+  }
   return path.join(parentReal, path.basename(absolute));
 }
 
