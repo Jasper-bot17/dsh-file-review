@@ -64,7 +64,7 @@
 ## 报告问题
 
 - 功能缺陷/建议：开 GitHub issue，附 DSH 版本、OS、复现步骤、期望/实际结果、截图或录屏。模板见 `.github/ISSUE_TEMPLATE/`。
-- 安全漏洞：**不要公开开 issue**，按 [SECURITY.md](SECURITY.md) 的私密通道报告（GitHub Security Advisories；维护者安全邮箱发布前补齐）。
+- 安全漏洞：**不要公开开 issue**，按 [SECURITY.md](SECURITY.md) 的私密通道报告（GitHub Security Advisories，或邮件 `jasper_ssh@126.com`）。
 - 提交前先搜是否已有同类 issue。
 
 ## 许可证
