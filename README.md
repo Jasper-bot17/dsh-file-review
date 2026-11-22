@@ -29,7 +29,11 @@ AI 生成文件后，人打开总发现细节问题；用聊天描述回去既�
 
 ## 界面预览
 
-> 图为设计参考稿渲染（假数据、已脱敏）；真机截图出来后同名替换，README 引用不变。
+> 图为设计参考稿渲染（假数据、已脱敏），顶部 GIF 为设计稿走查演示；真机截图/录屏出来后同名替换，README 引用不变。
+
+<p align="center">
+  <img src="docs/assets/demo-flow.gif" alt="15 秒走完一遍：打开面板 → 选中写批注 → 确认后发给 AI" width="880">
+</p>
 
 **文本批注**
 
@@ -168,7 +172,7 @@ dsh plugin --profile desktop add "C:\...\dsh-file-review"
 - [SECURITY.md](SECURITY.md)：安全边界与私密漏洞报告
 - [CHANGELOG.md](CHANGELOG.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
-- `docs/assets/`：README 截图
+- `docs/assets/`：README 截图与演示 GIF（素材规范见 `docs/assets/README.md`）
 
 ## 贡献
 
