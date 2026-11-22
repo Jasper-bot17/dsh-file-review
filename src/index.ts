@@ -286,7 +286,7 @@ function assertUsableWorkspace(workspace: string): string {
   return resolved;
 }
 
-function sessionWorkspace(ctx: HostContext, sessionId: string | null): string {
+async function sessionWorkspace(ctx: HostContext, sessionId: string | null): Promise<string> {
   // 2026-11-20 安全修复：不再采信客户端自报的 cwd（会绕过工作区栅栏）。
   // 工作区只能来自 Host 侧可解析的会话；无 sessionId 或解析不到一律 400 NO_SESSION。
   const session = sessionId ? ctx.sessions.get(sessionId) : undefined;
@@ -294,7 +294,10 @@ function sessionWorkspace(ctx: HostContext, sessionId: string | null): string {
   if (!cwd) {
     throw new ReviewError('NO_SESSION', '找不到会话工作区：请从小窗的会话入口打开', 400);
   }
-  return assertUsableWorkspace(cwd);
+  // 8.3 短路径（如 RUNNER~1）或符号链接下的 cwd 与 realpath 不同：
+  // 统一成真实根，后续解析、相对路径和展示路径才基于同一套字符串。
+  const real = await fsp.realpath(cwd).catch(() => cwd);
+  return assertUsableWorkspace(real);
 }
 
 function isWithin(root: string, target: string): boolean {
@@ -1465,7 +1468,7 @@ interface FileMeta {
 }
 
 async function handleTree(ctx: HostContext, url: URL): Promise<unknown> {
-  const workspace = sessionWorkspace(ctx, url.searchParams.get('sessionId'));
+  const workspace = await sessionWorkspace(ctx, url.searchParams.get('sessionId'));
   const relDir = url.searchParams.get('dir') ?? '';
   const absoluteDir = relDir
     ? await resolveWorkspacePath(workspace, relDir, { mustExist: true })
@@ -1514,7 +1517,7 @@ async function handleTree(ctx: HostContext, url: URL): Promise<unknown> {
 }
 
 async function handleRead(ctx: HostContext, url: URL): Promise<unknown> {
-  const workspace = sessionWorkspace(ctx, url.searchParams.get('sessionId'));
+  const workspace = await sessionWorkspace(ctx, url.searchParams.get('sessionId'));
   const absolute = await resolveWorkspacePath(workspace, url.searchParams.get('path') ?? '', { mustExist: true });
   const stat = await fsp.stat(absolute);
   if (stat.isDirectory()) throw new ReviewError('IS_DIR', '目标是目录', 400);
@@ -1538,7 +1541,7 @@ async function handleRead(ctx: HostContext, url: URL): Promise<unknown> {
 }
 
 async function handleStat(ctx: HostContext, url: URL): Promise<unknown> {
-  const workspace = sessionWorkspace(ctx, url.searchParams.get('sessionId'));
+  const workspace = await sessionWorkspace(ctx, url.searchParams.get('sessionId'));
   const absolute = await resolveWorkspacePath(workspace, url.searchParams.get('path') ?? '', { mustExist: true });
   const stat = await fsp.stat(absolute);
   if (stat.isDirectory()) throw new ReviewError('IS_DIR', '目标是目录', 400);
@@ -1567,7 +1570,7 @@ async function writeAtomic(target: string, content: string): Promise<void> {
 
 async function handleWrite(ctx: HostContext, req: IncomingMessage): Promise<unknown> {
   const body = await readJsonBody(req);
-  const workspace = sessionWorkspace(ctx, typeof body.sessionId === 'string' ? body.sessionId : null);
+  const workspace = await sessionWorkspace(ctx, typeof body.sessionId === 'string' ? body.sessionId : null);
   const relPath = typeof body.path === 'string' ? body.path : '';
   const content = typeof body.content === 'string' ? body.content : null;
   if (content === null) throw new ReviewError('BAD_BODY', '缺少 content', 400);
@@ -1604,7 +1607,7 @@ async function handleWrite(ctx: HostContext, req: IncomingMessage): Promise<unkn
 
 async function handleExport(ctx: HostContext, req: IncomingMessage): Promise<unknown> {
   const body = await readJsonBody(req);
-  const workspace = sessionWorkspace(ctx, typeof body.sessionId === 'string' ? body.sessionId : null);
+  const workspace = await sessionWorkspace(ctx, typeof body.sessionId === 'string' ? body.sessionId : null);
   const relPath = typeof body.path === 'string' ? body.path : '';
   const content = typeof body.content === 'string' ? body.content : '';
   if (!content.trim()) throw new ReviewError('BAD_BODY', '缺少 content', 400);
@@ -1702,7 +1705,7 @@ async function previewContext(
   ctx: HostContext,
   url: URL,
 ): Promise<{ absolute: string; stat: Stats; kind: PreviewKind }> {
-  const workspace = sessionWorkspace(ctx, url.searchParams.get('sessionId'));
+  const workspace = await sessionWorkspace(ctx, url.searchParams.get('sessionId'));
   const absolute = await resolveWorkspacePath(workspace, url.searchParams.get('path') ?? '', { mustExist: true });
   const stat = await fsp.stat(absolute);
   if (stat.isDirectory()) throw new ReviewError('IS_DIR', '目标是目录', 400);

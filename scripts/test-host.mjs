@@ -403,6 +403,7 @@ async function main() {
   // 2. 读文件
   const read = await call(handler, 'GET', '/file?sessionId=s1&path=notes.md');
   assert('GET /file 返回内容', read.status === 200 && read.json?.file?.content?.includes('第一行内容'), JSON.stringify(read.json));
+  assert('GET /file 的 path 是工作区相对路径（短路径/软链环境也一致）', read.json?.file?.path === 'notes.md', JSON.stringify(read.json?.file?.path));
   assert('GET /file 返回 sha1', typeof read.json?.file?.sha1 === 'string' && read.json.file.sha1.length === 40);
   assert('GET /file 可编辑标记', read.json?.file?.readonly === false);
 

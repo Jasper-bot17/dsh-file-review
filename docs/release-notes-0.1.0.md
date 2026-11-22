@@ -25,7 +25,7 @@ dsh plugin --profile desktop add "C:\path\to\dsh-file-review"
 
 ## 已验证
 
-- 发布候选构建：`lib/index.js` 72,180 B（SHA256 `B161042AC422E7B841A4BE05EB4A98263A59F566F6BE3FCB3316FB002019AB73`）、`lib/client.js` 113,216 B（SHA256 `DC1BD77D2CB68AA02629862D2751DCD5D16259B9E5E1C2AE98A2789DC24ED23D`），`npm run verify` → 契约 12/12、Host 71/71、client 44/44、exit=0，重编字节一致。
+- 发布构建：`lib/index.js` 72,845 B（SHA256 `5AC6508ADCB1483063C9954A23F5D7CE98F7EB46EB4520A8D760474CE71C4763`）、`lib/client.js` 113,216 B（SHA256 `DC1BD77D2CB68AA02629862D2751DCD5D16259B9E5E1C2AE98A2789DC24ED23D`），`npm run verify` → 契约 12/12、Host 72/72、client 44/44、exit=0，重编字节一致。
 - 16 样本安全矩阵 `ALL_DONE`：路径越界 403/400、zip 条目超限 404 `ZIP_TOO_MANY_ENTRIES`、超大文件 413、400KB 病态 sheet 94ms（门槛 ≤100ms）、非法 XML 实体 400。
 - 视觉与交互（headed Edge 真实鼠标）：V-08 冻结窗格、V-18 大表截断 + 加载全部、V-20 加密错误卡、V-14 四档缩放偏移 0.03px、pdf 拖选批注落在最终构建上。
 - 真机：desktop profile 安装、批注入口出现、文本/Office 批注发送链路均跑通。
