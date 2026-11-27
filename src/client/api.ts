@@ -1,4 +1,5 @@
 /** Host 半 HTTP API 客户端（同源 fetch） */
+import type { Annotation } from './message.js';
 
 const BASE = '/plugins/dsh-file-review/api';
 
@@ -263,6 +264,34 @@ export interface SendResult {
 export async function sendAnnotations(input: { sessionId: string; markdown: string }): Promise<SendResult> {
   return request<SendResult>('/send', {
     method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export interface AnnotationStore {
+  path: string;
+  annotations: Annotation[];
+  deleted: string[];
+  updatedAt: number;
+}
+
+/** S3 批注持久化：取某个文件已存的批注（无记录时返回空数组） */
+export async function loadAnnotations(sessionId: string | null, path: string): Promise<AnnotationStore> {
+  return request<AnnotationStore>(`/annotations${qs(sessionId, { path })}`);
+}
+
+/**
+ * 保存某文件的批注。deleted 是删除墓碑：多标签/并发下由 Host 合并，
+ * 避免另一个标签把已删批注又带回来。
+ */
+export async function saveAnnotations(input: {
+  sessionId: string | null;
+  path: string;
+  annotations: Annotation[];
+  deleted: string[];
+}): Promise<AnnotationStore> {
+  return request<AnnotationStore>('/annotations', {
+    method: 'PUT',
     body: JSON.stringify(input),
   });
 }

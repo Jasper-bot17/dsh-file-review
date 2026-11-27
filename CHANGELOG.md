@@ -2,12 +2,51 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-11-27
+
+在 v0.1.0 闭环上补齐日常使用最痛的三块：批注不会丢、多文件能对照、文件被改能及时发现。
+
+### 新增
+
+- **批注持久化**：批注改动自动保存到当前会话工作区 `.dsh-file-review/`（服务端派生存储文件名，临时文件 + rename 原子写，单文件上限 **512 KB / 500 条批注**）；同文件并发写入按批注 id 合并 + 删除墓碑，不丢批注；重开面板 / 刷新页面后自动还原，存储缺失或损坏时按空批注处理；支持导出 `.annotations.md`；文件被外部改动后旧批注标 stale，不把旧行号当准
+- **多文件标签**：一次最多打开 8 个文件，标签切换 / 关闭，超出提示先关一个
+- **快捷键**：`Ctrl/Cmd + S` 保存、`Ctrl/Cmd + Enter` 发送批注（确认框内）、`Esc` 关闭面板 / 取消编辑
+- **外部修改提示**：文件被 AI 或编辑器改动后面板提示「内容已更新」，可一键刷新；有未保存编辑时先提示冲突（行级 diff 高亮留 0.3.0）
+
+### 修复
+
+- CI 的 `actions/checkout`、`actions/setup-node` 从 v4 升到 v5（Node 20 已 EOL，action 运行时改 Node 24；GitHub 托管 `windows-latest` runner 满足最低 v2.327.1，无需额外处理）
+- README 及仓库其余文本文件统一清除 UTF-8 BOM，全仓按无 BOM UTF-8 保存
+- pptx 拖选批注在最终构建上复跑并补回归用例（此前只在 112,657 B 的中间构建上验过）
+- `ERR_CONVERT_TIMEOUT` 用真实超大文档补样本与回归，不再只是能力限制记录
+- README 界面预览从设计参考稿渲染更换为真机截图 / 录屏（同名替换，引用不变）
+
+### 变更
+
+- 文档重写：README（截图/GIF、安装、使用、配置、快捷键、FAQ、架构入口、路线图）；新增 `docs/usage.md`、`docs/architecture.md`、`docs/troubleshooting.md`；`docs/install.md` 补 v0.2.0 验收项
+- Node.js 口径统一为 **>= 22.13**（推荐 24 LTS）：`pdfjs-dist 6.5.438` 在 22.0–22.12 不可用，README / CONTRIBUTING / install 三处同步修正
+- `SECURITY.md` 支持版本更新为 0.2.x，补批注持久化的路径与写入边界
+- `CONTRIBUTING.md` 修正失效的设计文档引用，补文档索引与批注持久化约定；feature request 模板补影响范围项
+
+### 验证记录
+
+- `npm run verify`：bundle 契约 **12/12**、Host 自测 **81/81**、client bundle **47/47**，`EXIT=0`；两轮重编字节一致，Coding 已明确「不再重编」
+- 发布构建：`lib/index.js` **80,855 B**（SHA256 `CA9EFE04EA363DD28B6011C543FCEE96EA56FB5D0AEBA03D30C24D416B945B59`）、`lib/client.js` **121,632 B**（SHA256 `0F56EEDDC3FB2FF2111DD9E774F428BB9A68DFF2C05BC20481EA1EDCA7C2DC55`）
+- 持久化安全复核：`v0.2.0-持久化探针.mjs` **22/22** 通过（无会话 / 伪 sessionId / 越界路径 / 512 KB 上限 / 并发合并 / 墓碑 / 坏 JSON 降级 / `/tree` 过滤 `.bak` 与 `.dsh-file-review/`）
+- 待隔离实例复核（Claw，发版前）：pptx 拖选在最终构建复跑、`ERR_CONVERT_TIMEOUT` 真实超大文档样本、headed Edge 全量回归
+
+### 已知限制
+
+- 行级 diff 高亮未做（0.3.0）：当前只提示「内容已更新」并提供刷新
+- 扫描件、纯图片 PDF 无文字层，只能整页批注
+- Office 转换速度依赖本机转换链，部分环境较慢
+- Windows PowerShell 下建议用 `npm.cmd` 绕过执行策略
+
 ## [Unreleased]
 
-### 计划中（S3）
+### 计划中（0.3.0）
 
-- AI 改完原地刷新并高亮 diff、批注持久化、多文件标签、快捷键、拖拽打开
-- 转换超时（`ERR_CONVERT_TIMEOUT`）补真实样本与回归
+- AI 改完原地刷新并高亮行级 diff、拖拽打开文件、批注导出增强
 
 ## [0.1.0] - 2026-11-22
 
@@ -28,7 +67,7 @@
 ### 安全
 
 - Host 路由只读写**当前会话工作区**内路径（realpath 校验，拒绝 `..`、系统目录、盘根当工作区）
-- 仅监听 `127.0.0.1` 的 Web GUI；Office 转页图与 PDF 文字层在本地完成，不上传文件
+- 只接受本机 DSH GUI（127.0.0.1）的请求（`isTrustedRequest`，否则 403 `FORBIDDEN`）；Office 转页图与 PDF 文字层在本地完成，不上传文件
 - xlsx 手写 XML/zip 解析：条目数与单条大小上限、单格 64KB 上限、禁用外部实体；非法数值实体返回 400 `BAD_XML_ENTITY`
 - 批注消息中的文件路径与原文摘录做 Markdown 转义
 

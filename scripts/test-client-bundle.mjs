@@ -417,6 +417,19 @@ check(
   ),
 );
 check('bundle 含加载骨架与取消按钮', code.includes('dsh-fr-skeleton') && code.includes('取消'));
+// v0.2.0：多文件标签、批注持久化、外部修改提示与快捷键
+check(
+  'bundle 含多文件标签条与 8 个上限',
+  code.includes('dsh-fr-tabs') && code.includes('最多同时打开'),
+);
+check(
+  'bundle 含批注持久化读写（/annotations + 墓碑）',
+  code.includes('/annotations') && code.includes('loadAnnotations') && code.includes('saveAnnotations'),
+);
+check(
+  'bundle 含外部修改提示与 Ctrl/Cmd+Enter',
+  code.includes('内容已更新') && code.includes('ctrlKey') && code.includes('"Enter"'),
+);
 
 for (const name of ok) console.log(`  ok   ${name}`);
 for (const name of failures) console.log(`  FAIL ${name}`);

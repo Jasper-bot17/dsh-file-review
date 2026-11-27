@@ -8,3 +8,6 @@ Thumbs.db
 *.tsbuildinfo
 lib/**/*.map
 test-tmp/
+# 批注持久化与写回备份
+.dsh-file-review/
+*.bak

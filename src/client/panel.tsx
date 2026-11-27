@@ -8,9 +8,11 @@ import {
   getTextLayer,
   isApiError,
   listTree,
+  loadAnnotations,
   rawUrl,
   readFile,
   renderUrl,
+  saveAnnotations,
   saveFile,
   sendAnnotations,
   statFile,
@@ -71,6 +73,8 @@ const SHEET_HEADER_HEIGHT = 24;
 const SHEET_VIEWPORT_ROWS = 80;
 const SHEET_OVERSCAN = 20;
 const SHEET_VIRTUAL_THRESHOLD = 160;
+/** 多文件标签上限（与 Design 交互稿一致） */
+const MAX_TABS = 8;
 
 function isAbortError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { name?: string }).name === 'AbortError';
@@ -280,6 +284,8 @@ export function FileReviewPanel(): JSX.Element | null {
   const [sheetWindow, setSheetWindow] = useState({ start: 0, end: SHEET_VIEWPORT_ROWS });
   const [sheetFull, setSheetFull] = useState(false);
   const [fullConfirmOpen, setFullConfirmOpen] = useState(false);
+  const [tabs, setTabs] = useState<string[]>([]);
+  const [annotationSaveState, setAnnotationSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -294,12 +300,48 @@ export function FileReviewPanel(): JSX.Element | null {
   const sheetToken = useRef(0);
   const sheetCache = useRef(new Map<string, SheetData>());
   const sheetDragging = useRef(false);
+  const annotationsRef = useRef<Annotation[]>([]);
+  /** 删除墓碑：多标签/并发保存时由 Host 合并，避免已删批注被别的标签带回来 */
+  const deletedByPath = useRef(new Map<string, Set<string>>());
+  /** 每个文件最后一次成功保存的 updatedAt（调试/排查用，Host 以合并为准） */
+  const annotationUpdatedAt = useRef(new Map<string, number>());
+  /** 每个标签的未保存草稿，切换标签不丢 */
+  const tabDrafts = useRef(new Map<string, { draft: string; dirty: boolean; mode: 'preview' | 'edit' }>());
 
   const showToast = useCallback((text: string) => {
     setToast(text);
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2800);
   }, []);
+
+  useEffect(() => {
+    annotationsRef.current = annotations;
+  }, [annotations]);
+
+  /** 把当前文件批注写进工作区 `.dsh-file-review/`；Host 负责合并与上限 */
+  const persistAnnotations = useCallback(
+    async (path: string) => {
+      if (!sessionId || !path) return;
+      const list = annotationsRef.current.filter((annotation) => annotation.path === path);
+      const deleted = [...(deletedByPath.current.get(path) ?? [])];
+      try {
+        const saved = await saveAnnotations({ sessionId, path, annotations: list, deleted });
+        annotationUpdatedAt.current.set(path, saved.updatedAt);
+        if (deleted.length > 0) deletedByPath.current.set(path, new Set());
+        setAnnotationSaveState('saved');
+      } catch {
+        setAnnotationSaveState('error');
+      }
+    },
+    [sessionId],
+  );
+
+  useEffect(() => {
+    if (!snapshot.open || !file) return;
+    const path = file.path;
+    const timer = window.setTimeout(() => void persistAnnotations(path), 350);
+    return () => window.clearTimeout(timer);
+  }, [annotations, file?.path, snapshot.open, persistAnnotations]);
 
   useEffect(() => {
     try {
@@ -521,20 +563,32 @@ export function FileReviewPanel(): JSX.Element | null {
       setSendOpen(false);
       try {
         const next = await readFile(sessionId, relativePath);
+        // 批注持久化：先取该文件已存的批注，再和本地未保存的按 id 合并。
+        const stored = await loadAnnotations(sessionId, next.path).catch(() => null);
+        if (stored) annotationUpdatedAt.current.set(next.path, stored.updatedAt);
         setFile(next);
-        setDraft(next.content);
-        setDirty(false);
-        setMode('preview');
+        const savedDraft = tabDrafts.current.get(next.path);
+        setDraft(savedDraft?.dirty ? savedDraft.draft : next.content);
+        setDirty(Boolean(savedDraft?.dirty));
+        setMode(savedDraft?.mode ?? 'preview');
         setBanner(null);
         setVersions((previous) => ({ ...previous, [next.path]: previous[next.path] ?? 1 }));
         void loadPreview(next);
-        setAnnotations((previous) =>
-          previous.map((annotation) =>
-            annotation.path === next.path && annotation.fileSha1 && annotation.fileSha1 !== next.sha1 && annotation.status === 'open'
-              ? { ...annotation, status: 'stale' }
+        setAnnotations((previous) => {
+          const merged = new Map<string, Annotation>();
+          for (const annotation of stored?.annotations ?? []) merged.set(annotation.id, annotation);
+          for (const annotation of previous.filter((item) => item.path === next.path)) {
+            merged.set(annotation.id, annotation);
+          }
+          for (const id of deletedByPath.current.get(next.path) ?? []) merged.delete(id);
+          const others = previous.filter((item) => item.path !== next.path);
+          const current = [...merged.values()].map((annotation) =>
+            annotation.fileSha1 && annotation.fileSha1 !== next.sha1 && annotation.status === 'open'
+              ? { ...annotation, status: 'stale' as const }
               : annotation,
-          ),
-        );
+          );
+          return [...others, ...current];
+        });
       } catch (error) {
         setFile(null);
         showToast(`打开文件失败：${isApiError(error) ? error.message : String(error)}`);
@@ -589,10 +643,11 @@ export function FileReviewPanel(): JSX.Element | null {
 
   const requestClose = useCallback(() => {
     if (dirty && !window.confirm('有未保存的修改，关闭后丢失，确定关闭？')) return;
+    if (file) void persistAnnotations(file.path);
     setComposer(null);
     setSendOpen(false);
     closePanel();
-  }, [dirty]);
+  }, [dirty, file, persistAnnotations]);
 
   const refreshCurrent = useCallback(async () => {
     if (!file) return;
@@ -605,6 +660,7 @@ export function FileReviewPanel(): JSX.Element | null {
     setFile(next);
     setDraft(next.content);
     setDirty(false);
+    tabDrafts.current.delete(next.path);
     setBanner(null);
     void loadPreview(next);
     setAnnotations((previous) =>
@@ -612,6 +668,50 @@ export function FileReviewPanel(): JSX.Element | null {
     );
     showToast('已刷新到最新版本');
   }, [dirty, file, loadPreview, sessionId, showToast]);
+
+  /** 切换标签前把当前草稿收进 map，回来时还原，切标签不丢未保存修改 */
+  const stashActiveTab = useCallback(() => {
+    if (!file) return;
+    if (dirty || mode === 'edit') tabDrafts.current.set(file.path, { draft, dirty, mode });
+    else tabDrafts.current.delete(file.path);
+  }, [draft, dirty, file, mode]);
+
+  const openTab = useCallback(
+    (relativePath: string) => {
+      if (relativePath === activePath) return;
+      if (!tabs.includes(relativePath) && tabs.length >= MAX_TABS) {
+        showToast(`最多同时打开 ${MAX_TABS} 个文件`);
+        return;
+      }
+      stashActiveTab();
+      if (file) void persistAnnotations(file.path);
+      setTabs((previous) => (previous.includes(relativePath) ? previous : [...previous, relativePath]));
+      setActivePath(relativePath);
+    },
+    [activePath, file, persistAnnotations, showToast, stashActiveTab, tabs],
+  );
+
+  const closeTab = useCallback(
+    (relativePath: string) => {
+      if (relativePath === file?.path && dirty && !window.confirm('这个标签有未保存的修改，关闭后丢失，确定关闭？')) return;
+      if (relativePath === file?.path) void persistAnnotations(relativePath);
+      tabDrafts.current.delete(relativePath);
+      const nextTabs = tabs.filter((item) => item !== relativePath);
+      setTabs(nextTabs);
+      if (relativePath !== activePath) return;
+      const next = nextTabs[nextTabs.length - 1] ?? null;
+      setActivePath(next);
+      if (!next) {
+        setFile(null);
+        setPreview(null);
+        setPreviewError(null);
+        setComposer(null);
+        setSendOpen(false);
+        setBanner(null);
+      }
+    },
+    [activePath, dirty, file?.path, persistAnnotations, tabs],
+  );
 
   const activeAnnotations = useMemo(
     () => (file ? annotations.filter((annotation) => annotation.path === file.path) : []),
@@ -1048,6 +1148,7 @@ export function FileReviewPanel(): JSX.Element | null {
       const saved = await saveFile({ sessionId, path: file.path, content: draft, baseSha1: file.sha1 });
       setFile({ ...file, content: draft, sha1: saved.sha1, size: saved.size, mtimeMs: saved.mtimeMs });
       setDirty(false);
+      tabDrafts.current.delete(file.path);
       setBanner(null);
       setVersions((previous) => ({ ...previous, [file.path]: (previous[file.path] ?? 1) + 1 }));
       showToast(`已保存 v${(versions[file.path] ?? 1) + 1}（原文件备份为 .bak）`);
@@ -1102,6 +1203,12 @@ export function FileReviewPanel(): JSX.Element | null {
   }, []);
 
   const deleteAnnotation = useCallback((id: string) => {
+    const target = annotationsRef.current.find((annotation) => annotation.id === id);
+    if (target) {
+      const pending = deletedByPath.current.get(target.path) ?? new Set<string>();
+      pending.add(id);
+      deletedByPath.current.set(target.path, pending);
+    }
     setAnnotations((previous) => previous.filter((annotation) => annotation.id !== id));
   }, []);
 
@@ -1218,6 +1325,19 @@ export function FileReviewPanel(): JSX.Element | null {
   useEffect(() => {
     if (!snapshot.open) return;
     const onKeyDown = (event: KeyboardEvent): void => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        if (composer) {
+          addAnnotation();
+          return;
+        }
+        if (sendOpen) {
+          if (!busy && activeAnnotations.length > 0) void send();
+          return;
+        }
+        if (activeAnnotations.length > 0) setSendOpen(true);
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
         if (mode === 'edit' && dirty) void save();
@@ -1236,7 +1356,7 @@ export function FileReviewPanel(): JSX.Element | null {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [composer, dirty, mode, requestClose, save, sendOpen, snapshot.open]);
+  }, [activeAnnotations.length, addAnnotation, busy, composer, dirty, mode, requestClose, save, send, sendOpen, snapshot.open]);
 
   if (!snapshot.open) return null;
 
@@ -1267,10 +1387,7 @@ export function FileReviewPanel(): JSX.Element | null {
           key={entry.path}
           className={`dsh-fr-tree-row${entry.path === activePath ? ' dsh-fr-tree-row-active' : ''}`}
           style={{ paddingLeft }}
-          onClick={() => {
-            if (dirty && activePath !== entry.path && !window.confirm('有未保存修改，切换文件会丢失，继续？')) return;
-            setActivePath(entry.path);
-          }}
+          onClick={() => openTab(entry.path)}
           title={entry.path}
         >
           <span className="dsh-fr-tree-icon">📄</span>
@@ -1310,7 +1427,7 @@ export function FileReviewPanel(): JSX.Element | null {
 
       {banner === 'external' ? (
         <div className="dsh-fr-banner">
-          <span>文件已在外部修改，当前预览不是最新版本。</span>
+          <span>内容已更新，当前预览不是最新版本。</span>
           <span className="dsh-fr-spacer" />
           <button className="dsh-fr-btn" onClick={() => void refreshCurrent()}>
             刷新到最新
@@ -1337,6 +1454,32 @@ export function FileReviewPanel(): JSX.Element | null {
         </aside>
 
         <main className="dsh-fr-main">
+          {tabs.length > 0 ? (
+            <div className="dsh-fr-tabs" role="tablist">
+              {tabs.map((path) => {
+                const name = path.split('/').pop() ?? path;
+                const unsaved = path === file?.path ? dirty : tabDrafts.current.get(path)?.dirty;
+                return (
+                  <span
+                    key={path}
+                    className={`dsh-fr-tab${path === activePath ? ' dsh-fr-tab-active' : ''}`}
+                    title={path}
+                  >
+                    <button className="dsh-fr-tab-name" role="tab" onClick={() => openTab(path)}>
+                      {name}
+                      {unsaved ? ' •' : ''}
+                    </button>
+                    <button className="dsh-fr-tab-close" onClick={() => closeTab(path)} title="关闭标签">
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
+              <span className="dsh-fr-tabs-count">
+                {tabs.length}/{MAX_TABS}
+              </span>
+            </div>
+          ) : null}
           <div className="dsh-fr-toolbar">
             {file ? (
               <>

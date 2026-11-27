@@ -6,7 +6,7 @@
 
 | 项 | 要求 / 实测值 |
 |---|---|
-| Node.js | >= 22（实测 v24.18.0） |
+| Node.js | >= 22.13（推荐 24 LTS；22.0–22.12 缺 `pdfjs-dist 6.5.438` 所需 API，PDF 解析不可用） |
 | npm | 随 Node（Windows 下 `npm.ps1` 可能被执行策略拦截，用 `npm.cmd`） |
 | DSH CLI | `dsh` 在 PATH（DSH 桌面应用自带；或 `npm i -g` 安装） |
 | desktop profile | `~/.dsh/profiles/desktop` |
@@ -96,6 +96,10 @@ dsh web --port 50123 --no-open --host 127.0.0.1
 - [ ] 打开工作区文本文件能预览；编辑保存后磁盘内容变化、生成 `.bak`
 - [ ] 选中文本能加批注；批注列表可删；「发给 AI」后会话里出现对应消息
 - [ ] 越界路径（工作区外、`..`、盘根）被拒并有明确报错
+- [ ] v0.2.0：加几条批注后关闭面板再打开 / 刷新页面，批注自动还原；工作区出现 `.dsh-file-review/`
+- [ ] v0.2.0：一次打开多个文件（最多 8 个）标签切换正常，超出有提示
+- [ ] v0.2.0：`Ctrl/Cmd + S` 保存、`Ctrl/Cmd + Enter` 发送、`Esc` 关闭面板均生效
+- [ ] v0.2.0：用 AI 改一次当前文件，面板出现「内容已更新」并可一键刷新
 - [ ] `dsh plugin --profile desktop remove dsh-file-review` 后重启，入口消失、profile 干净
 
 ## 6. 已知问题

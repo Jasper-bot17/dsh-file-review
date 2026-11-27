@@ -87,6 +87,71 @@ export const PANEL_CSS = `
 .dsh-fr-tree-icon { width: 14px; flex: none; text-align: center; opacity: .85; }
 .dsh-fr-tree-name { overflow: hidden; text-overflow: ellipsis; }
 .dsh-fr-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dsh-fr-tabs {
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 4px 8px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--dsw-color-border, rgba(255,255,255,.07));
+  background: rgba(0,0,0,.12);
+  scrollbar-width: thin;
+}
+.dsh-fr-tab {
+  display: inline-flex;
+  align-items: center;
+  max-width: 200px;
+  height: 29px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: rgba(255,255,255,.03);
+  color: var(--dsw-color-text-secondary, #9aa0ad);
+  font-size: 12px;
+}
+.dsh-fr-tab:hover { background: rgba(255,255,255,.07); }
+.dsh-fr-tab-active {
+  background: var(--dsw-color-bg-elevated, #242832);
+  border-color: var(--dsw-color-border, rgba(255,255,255,.1));
+  color: var(--dsw-color-text-primary, #e8eaf0);
+}
+.dsh-fr-tab-name {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0 4px 0 10px;
+  height: 100%;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dsh-fr-tab-close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  width: 20px;
+  height: 20px;
+  margin-right: 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: .7;
+}
+.dsh-fr-tab-close:hover { background: rgba(255,255,255,.12); opacity: 1; }
+.dsh-fr-tabs-count {
+  margin-left: auto;
+  align-self: center;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--dsw-color-text-secondary, #7d8494);
+  flex: none;
+}
 .dsh-fr-toolbar {
   height: 38px;
   flex: none;

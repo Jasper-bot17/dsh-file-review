@@ -1,6 +1,6 @@
 {
   "name": "dsh-file-review",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DeepSeek Harness 文件预览与批注插件：在 GUI 里预览工作区文件、直接编辑保存、选中文字批注，一键把批注发给当前会话的 AI 去改。",
   "type": "module",
   "main": "lib/index.js",
@@ -27,6 +27,14 @@
   ],
   "license": "MIT",
   "author": "Jasper-bot17",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jasper-bot17/dsh-file-review.git"
+  },
+  "homepage": "https://github.com/Jasper-bot17/dsh-file-review#readme",
+  "bugs": {
+    "url": "https://github.com/Jasper-bot17/dsh-file-review/issues"
+  },
   "keywords": [
     "dsh",
     "dsh-plugin",

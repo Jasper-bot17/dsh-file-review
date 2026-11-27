@@ -1,10 +1,10 @@
-# CI 草稿（Assistant 起草，2026-11-20；待 Coding 复核平台性）
+# CI：npm run verify（typecheck + build + bundle 契约 + Host/client 离线自测）
 #
-# 为什么先用 windows-latest：本机实测口径是 Windows（`scripts/test-host.mjs` 里用
-# `USERPROFILE`/`TEMP` 兜底、绝对路径用例写的是 `C:\Windows\win.ini`、断言 400/403）。
-# 这些用例在 ubuntu 上未必等价，先用 windows-latest 保证一上来不红。
-# Coding 确认 verify 平台无关（或把 test-host.mjs 的平台口径改成可移植）后，可改回
-# ubuntu-latest 省 CI 时间；改回前先本地/隔离环境跑一遍再合。
+# 平台：windows-latest。原因：scripts/test-host.mjs 的用例按本机 Windows 口径写
+# （USERPROFILE/TEMP 兜底、C:\Windows\win.ini 绝对路径断言），在 ubuntu 上未必等价；
+# 待测试口径可移植后再评估切 ubuntu-latest。
+#
+# actions 用 v5：运行时为 Node 24，GitHub 托管 runner（>= v2.327.1）已满足。
 name: verify
 
 on:
@@ -16,9 +16,9 @@ jobs:
   verify:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm

@@ -760,7 +760,112 @@ async function main() {
   );
   sessionController.fail = false;
 
-  // 9. 未知路由 / 缺会话
+  // 9. 批注持久化（.dsh-file-review/）
+  const annotationsEmpty = await call(handler, 'GET', '/annotations?sessionId=s1&path=notes.md');
+  assert(
+    'GET /annotations 空存储返回空列表',
+    annotationsEmpty.status === 200 && Array.isArray(annotationsEmpty.json?.annotations) && annotationsEmpty.json.annotations.length === 0,
+    JSON.stringify(annotationsEmpty.json),
+  );
+  const annotation = {
+    id: 'a1',
+    path: 'notes.md',
+    from: 1,
+    to: 2,
+    quote: '第一行',
+    text: '改标题',
+    status: 'open',
+    createdAt: 1,
+    fileSha1: null,
+  };
+  const annotationsSaved = await call(handler, 'PUT', '/annotations', {
+    sessionId: 's1',
+    path: 'notes.md',
+    annotations: [annotation],
+    deleted: [],
+  });
+  assert(
+    'PUT /annotations 写入成功',
+    annotationsSaved.status === 200 && annotationsSaved.json?.annotations?.length === 1,
+    JSON.stringify(annotationsSaved.json),
+  );
+  const annotationsRead = await call(handler, 'GET', '/annotations?sessionId=s1&path=notes.md');
+  assert(
+    'GET /annotations 读回批注',
+    annotationsRead.status === 200 && annotationsRead.json?.annotations?.[0]?.text === '改标题',
+    JSON.stringify(annotationsRead.json),
+  );
+  const annotationsOverwritten = await call(handler, 'PUT', '/annotations', {
+    sessionId: 's1',
+    path: 'notes.md',
+    annotations: [{ ...annotation, text: '改副标题' }],
+    deleted: [],
+  });
+  assert(
+    '同 id 覆盖而不是重复',
+    annotationsOverwritten.status === 200 &&
+      annotationsOverwritten.json?.annotations?.length === 1 &&
+      annotationsOverwritten.json.annotations[0].text === '改副标题',
+    JSON.stringify(annotationsOverwritten.json),
+  );
+  const annotationsDeleted = await call(handler, 'PUT', '/annotations', {
+    sessionId: 's1',
+    path: 'notes.md',
+    annotations: [],
+    deleted: ['a1'],
+  });
+  assert(
+    '墓碑删除批注',
+    annotationsDeleted.status === 200 && annotationsDeleted.json?.annotations?.length === 0,
+    JSON.stringify(annotationsDeleted.json),
+  );
+  const annotationsReAdded = await call(handler, 'PUT', '/annotations', {
+    sessionId: 's1',
+    path: 'notes.md',
+    annotations: [annotation],
+    deleted: [],
+  });
+  assert(
+    '墓碑删除后不能被旧标签加回',
+    annotationsReAdded.status === 200 && annotationsReAdded.json?.annotations?.length === 0,
+    JSON.stringify(annotationsReAdded.json),
+  );
+  const annotationsEscape = await call(handler, 'PUT', '/annotations', {
+    sessionId: 's1',
+    path: '../outside.md',
+    annotations: [annotation],
+    deleted: [],
+  });
+  assert(
+    '批注路径越界返回 400 BAD_PATH',
+    annotationsEscape.status === 400 && annotationsEscape.json?.error?.code === 'BAD_PATH',
+    JSON.stringify(annotationsEscape.json),
+  );
+  const annotationsTooLarge = await call(handler, 'PUT', '/annotations', {
+    sessionId: 's1',
+    path: 'notes.md',
+    annotations: Array.from({ length: 500 }, (_, index) => ({
+      ...annotation,
+      id: `big-${index}`,
+      text: 'x'.repeat(4000),
+    })),
+    deleted: [],
+  });
+  assert(
+    '批注超过 512KB 返回 413 TOO_LARGE',
+    annotationsTooLarge.status === 413 && annotationsTooLarge.json?.error?.code === 'TOO_LARGE',
+    `status=${annotationsTooLarge.status} body=${JSON.stringify(annotationsTooLarge.json?.error)}`,
+  );
+  writeFileSync(join(workspace, 'stale.md.bak'), 'backup', 'utf8');
+  const treeFiltered = await call(handler, 'GET', '/tree?sessionId=s1');
+  const treeNames = (treeFiltered.json?.entries ?? []).map((entry) => entry.name);
+  assert(
+    '文件树隐藏 .bak 与 .dsh-file-review',
+    !treeNames.includes('stale.md.bak') && !treeNames.includes('.dsh-file-review'),
+    JSON.stringify(treeNames),
+  );
+
+  // 10. 未知路由 / 缺会话
   const unknown = await call(handler, 'GET', '/nope');
   assert('未知路由 404', unknown.status === 404);
   const noSession = await call(handler, 'GET', '/tree');
