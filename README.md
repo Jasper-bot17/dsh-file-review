@@ -50,7 +50,7 @@ AI 写完一个文件，人打开总会发现细节问题；用聊天一句句�
 
 ## 界面预览
 
-> 图为界面演示（演示用假数据、已脱敏），素材规范见 [`docs/assets/README.md`](docs/assets/README.md)。
+> 图为 **v0.2.0 最终构建的真机截图**（隔离实例 50125，演示用假数据、已脱敏；hero 与架构图为设计稿渲染），素材规范见 [`docs/assets/README.md`](docs/assets/README.md)。
 
 <p align="center">
   <img src="docs/assets/demo-flow.gif" alt="15 秒走完一遍：打开面板 → 选中写批注 → 确认后发给 AI" width="880">
@@ -71,6 +71,12 @@ AI 写完一个文件，人打开总会发现细节问题；用聊天一句句�
 ![发给 AI 前先看清楚：文件、版本、每条批注的行号和原文都在消息里，可勾选、可改。](docs/assets/panel-confirm.png)
 
 发给 AI 前先看清楚：文件、版本、每条批注的行号和原文都在消息里，可勾选、可改。
+
+**v0.2.0 新增**
+
+| 多文件标签 | 批注持久化 | 外部修改提示 |
+|---|---|---|
+| ![一次开多个文件，标签栏到 8 个上限。](docs/assets/tabs-multifile.png) | ![关掉面板再打开，批注还在（存会话工作区 `.dsh-file-review/`）。](docs/assets/persist-restore.png) | ![文件被外部改过，顶部提示「内容已更新」一键刷新。](docs/assets/external-update.png) |
 
 **Office / PDF**
 
