@@ -25,7 +25,7 @@ function assert(name, condition, detail = '') {
   }
 }
 
-function makeReq(method, url, body) {
+function makeReq(method, url, body, headers = {}) {
   const payload = body === undefined ? '' : JSON.stringify(body);
   const req = Readable.from(payload ? [Buffer.from(payload, 'utf8')] : []);
   req.method = method;
@@ -34,6 +34,7 @@ function makeReq(method, url, body) {
     host: '127.0.0.1:3080',
     'sec-fetch-site': 'same-origin',
     'content-type': 'application/json',
+    ...headers,
   };
   req.socket = { remoteAddress: '127.0.0.1' };
   return req;
@@ -50,8 +51,16 @@ function makeRes() {
       state.status = status;
       state.headers = headers ?? {};
     },
+    write(chunk) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk ?? ''), 'utf8');
+      state.raw = Buffer.concat([state.raw, buffer]);
+      return true;
+    },
     end(body) {
-      state.raw = Buffer.isBuffer(body) ? body : Buffer.from(String(body ?? ''), 'utf8');
+      if (body !== undefined) {
+        const buffer = Buffer.isBuffer(body) ? body : Buffer.from(String(body ?? ''), 'utf8');
+        state.raw = Buffer.concat([state.raw, buffer]);
+      }
       state.body = state.raw.toString('utf8');
       resolveDone();
     },
@@ -59,8 +68,8 @@ function makeRes() {
   return { res, state, done };
 }
 
-async function call(handler, method, path, body) {
-  const req = makeReq(method, `${API}${path}`, body);
+async function call(handler, method, path, body, headers = {}) {
+  const req = makeReq(method, `${API}${path}`, body, headers);
   const { res, state, done } = makeRes();
   await handler(req, res);
   await done;
@@ -266,6 +275,23 @@ async function main() {
   writeFileSync(join(workspace, 'converted.pdf'), pdfBytes);
   writeFileSync(join(workspace, 'valid.pdf'), buildMinimalPdf());
   writeFileSync(join(workspace, 'pic.png'), previewPng);
+  writeFileSync(join(workspace, 'pic.avif'), previewPng);
+  writeFileSync(join(workspace, 'scan.tiff'), Buffer.from('fake-tiff'));
+  const mediaBytes = Buffer.alloc(1024, 7);
+  writeFileSync(join(workspace, 'clip.mp4'), mediaBytes);
+  writeFileSync(join(workspace, 'voice.mp3'), mediaBytes.subarray(0, 600));
+  const ftyp = (major, compatible) => {
+    const size = 16 + compatible.length * 4;
+    const box = Buffer.alloc(size);
+    box.writeUInt32BE(size, 0);
+    box.write('ftyp', 4, 'latin1');
+    box.write(major, 8, 'latin1');
+    box.writeUInt32BE(0, 12);
+    compatible.forEach((brand, index) => box.write(brand, 16 + index * 4, 'latin1'));
+    return box;
+  };
+  writeFileSync(join(workspace, 'movie.mov'), ftyp('qt  ', ['qt  ']));
+  writeFileSync(join(workspace, 'hevc.mp4'), ftyp('isom', ['isom', 'hvc1']));
   writeFileSync(join(workspace, 'blob.xyz'), Buffer.from('unsupported'));
 
   let handler = null;
@@ -686,6 +712,97 @@ async function main() {
     rawImage.status === 200 && rawImage.headers['content-type'] === 'image/png' && rawImage.raw.equals(previewPng),
     `status=${rawImage.status} type=${rawImage.headers['content-type']} len=${rawImage.raw.length}`,
   );
+  // v0.3.0：音视频走 media kind + /raw Range（浏览器拖动进度条依赖 206）
+  const videoPreview = await call(handler, 'GET', '/preview?sessionId=s1&path=clip.mp4');
+  assert(
+    '视频预览返回 media/video 元数据',
+    videoPreview.status === 200
+      && videoPreview.json?.preview?.kind === 'media'
+      && videoPreview.json?.preview?.media === 'video'
+      && videoPreview.json?.preview?.mime === 'video/mp4'
+      && videoPreview.json?.preview?.size === 1024,
+    JSON.stringify(videoPreview.json),
+  );
+  const audioPreview = await call(handler, 'GET', '/preview?sessionId=s1&path=voice.mp3');
+  assert(
+    '音频预览返回 media/audio 元数据',
+    audioPreview.status === 200
+      && audioPreview.json?.preview?.kind === 'media'
+      && audioPreview.json?.preview?.media === 'audio'
+      && audioPreview.json?.preview?.mime === 'audio/mpeg',
+    JSON.stringify(audioPreview.json),
+  );
+  const movPreview = await call(handler, 'GET', '/preview?sessionId=s1&path=movie.mov');
+  assert(
+    'MOV/QuickTime 不被 Host 拦截（交给浏览器运行时判定）',
+    movPreview.status === 200
+      && movPreview.json?.preview?.kind === 'media'
+      && movPreview.json?.preview?.media === 'video',
+    JSON.stringify(movPreview.json),
+  );
+  const hevcPreview = await call(handler, 'GET', '/preview?sessionId=s1&path=hevc.mp4');
+  assert(
+    'HEVC 不被 Host 拦截（由客户端 videoWidth 看门狗兜底）',
+    hevcPreview.status === 200
+      && hevcPreview.json?.preview?.kind === 'media'
+      && hevcPreview.json?.preview?.media === 'video',
+    JSON.stringify(hevcPreview.json),
+  );
+  const rawMedia = await call(handler, 'GET', '/raw?sessionId=s1&path=clip.mp4');
+  assert(
+    'GET /raw 音视频支持整段读取并声明 Accept-Ranges',
+    rawMedia.status === 200
+      && rawMedia.headers['accept-ranges'] === 'bytes'
+      && rawMedia.headers['content-type'] === 'video/mp4'
+      && rawMedia.raw.length === 1024,
+    `status=${rawMedia.status} len=${rawMedia.raw.length} ranges=${rawMedia.headers['accept-ranges']}`,
+  );
+  const rangeMedia = await call(handler, 'GET', '/raw?sessionId=s1&path=clip.mp4', undefined, { range: 'bytes=0-99' });
+  assert(
+    'Range 请求返回 206 与前 100 字节',
+    rangeMedia.status === 206
+      && rangeMedia.headers['content-range'] === 'bytes 0-99/1024'
+      && rangeMedia.headers['content-length'] === 100
+      && rangeMedia.raw.length === 100,
+    `status=${rangeMedia.status} range=${rangeMedia.headers['content-range']} len=${rangeMedia.raw.length}`,
+  );
+  const suffixMedia = await call(handler, 'GET', '/raw?sessionId=s1&path=clip.mp4', undefined, { range: 'bytes=-50' });
+  assert(
+    '后缀 Range 返回最后 50 字节',
+    suffixMedia.status === 206 && suffixMedia.headers['content-range'] === 'bytes 974-1023/1024',
+    `status=${suffixMedia.status} range=${suffixMedia.headers['content-range']}`,
+  );
+  const badRange = await call(handler, 'GET', '/raw?sessionId=s1&path=clip.mp4', undefined, { range: 'bytes=2000-' });
+  assert(
+    '越界 Range 返回 416',
+    badRange.status === 416 && badRange.headers['content-range'] === 'bytes */1024',
+    `status=${badRange.status} range=${badRange.headers['content-range']}`,
+  );
+  const headMedia = await call(handler, 'HEAD', '/raw?sessionId=s1&path=clip.mp4');
+  assert(
+    'HEAD /raw 返回长度/类型且无正文',
+    headMedia.status === 200
+      && headMedia.headers['content-type'] === 'video/mp4'
+      && Number(headMedia.headers['content-length']) === 1024
+      && headMedia.raw.length === 0,
+    `status=${headMedia.status} len=${headMedia.headers['content-length']} body=${headMedia.raw.length}`,
+  );
+  const avifPreview = await call(handler, 'GET', '/preview?sessionId=s1&path=pic.avif');
+  assert(
+    'avif 图片返回 image/avif',
+    avifPreview.status === 200
+      && avifPreview.json?.preview?.kind === 'image'
+      && avifPreview.json?.preview?.mime === 'image/avif',
+    JSON.stringify(avifPreview.json),
+  );
+  const tiffPreview = await call(handler, 'GET', '/preview?sessionId=s1&path=scan.tiff');
+  assert(
+    'tiff 返回 415 并提示转 PNG',
+    tiffPreview.status === 415
+      && tiffPreview.json?.error?.code === 'UNSUPPORTED_PREVIEW'
+      && String(tiffPreview.json?.error?.message ?? '').includes('PNG'),
+    JSON.stringify(tiffPreview.json),
+  );
   const unsupported = await call(handler, 'GET', '/preview?sessionId=s1&path=blob.xyz');
   assert(
     '不支持的类型返回 415 UNSUPPORTED_PREVIEW',
@@ -794,6 +911,30 @@ async function main() {
     'GET /annotations 读回批注',
     annotationsRead.status === 200 && annotationsRead.json?.annotations?.[0]?.text === '改标题',
     JSON.stringify(annotationsRead.json),
+  );
+  // 媒体时间码必须活着穿过后端清洗：刷新后“定位”依赖 block.at
+  const mediaAnnotation = {
+    id: 'm1',
+    path: 'clip.mp4',
+    from: 1,
+    to: 1,
+    quote: '视频 00:03',
+    text: '剪短一点',
+    status: 'open',
+    createdAt: 2,
+    fileSha1: null,
+    block: { page: 1, label: '视频 00:03', at: 3 },
+  };
+  const mediaSaved = await call(handler, 'PUT', '/annotations', {
+    sessionId: 's1',
+    path: 'clip.mp4',
+    annotations: [mediaAnnotation],
+    deleted: [],
+  });
+  assert(
+    'PUT /annotations 保留媒体时间码 block.at',
+    mediaSaved.status === 200 && mediaSaved.json?.annotations?.[0]?.block?.at === 3,
+    JSON.stringify(mediaSaved.json),
   );
   const annotationsOverwritten = await call(handler, 'PUT', '/annotations', {
     sessionId: 's1',

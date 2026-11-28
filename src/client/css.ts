@@ -443,6 +443,37 @@ export const PANEL_CSS = `
   border-radius: 4px;
   box-shadow: 0 8px 28px rgba(0,0,0,.35);
 }
+.dsh-fr-media-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.dsh-fr-video {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 6px;
+  background: #000;
+  box-shadow: 0 8px 28px rgba(0,0,0,.35);
+}
+.dsh-fr-audio { width: min(520px, 100%); }
+.dsh-fr-media-error {
+  max-width: 520px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: rgba(240,180,94,.12);
+  border: 1px solid rgba(240,180,94,.35);
+  color: #f0b45e;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
 .dsh-fr-preview-state {
   padding: 48px 24px;
   text-align: center;

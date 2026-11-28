@@ -12,7 +12,9 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/Jasper-bot17/dsh-file-review" alt="license"></a>
 </p>
 
-> 当前版本 **v0.2.0**（2026-11-27）：在 v0.1.0 的「预览 / 编辑 / 批注 / 回传 AI」闭环上，新增**批注持久化、多文件标签、快捷键、外部修改提示**。
+> 当前版本 **v0.3.0**（2026-11-28）：修掉「页图放大就糊」和「音视频打不开」——页图 DPI 120 → 240，新增视频/音频预览（HTTP Range 流式、可拖动进度条、按时间码批注），补 `avif`/`ico` 和 `tiff`/`heic` 的明确提示。支持状态见下方「支持格式」矩阵。
+>
+> 上一版 v0.2.0（2026-11-27）：批注持久化、多文件标签（≤8）、快捷键、外部修改提示。
 
 ## 为什么做
 
@@ -44,9 +46,32 @@ AI 写完一个文件，人打开总会发现细节问题；用聊天一句句�
 - **快捷键**：`Ctrl/Cmd + S` 保存、`Ctrl/Cmd + Enter` 发送批注、`Esc` 关闭面板 / 取消。
 - **外部修改提示**：文件被 AI 或编辑器改动后面板提示「内容已更新」，可一键刷新；有未保存编辑时先提示冲突。
 
-**计划中（0.3.0）**
+**开发中（v0.3.0）**
 
-- AI 改完原地刷新并高亮**行级 diff**、拖拽打开文件、更多格式支持。
+- 预览画质：页图渲染 DPI 120 → **240**（A4 约 2040px 宽），放大到 250% 也清晰；缓存在 `(sha256, dpi)` 维度区分，切档不复用。
+- 视频与音频：视频 `mp4` `m4v` `webm` `ogv` `mov`（H.264 MOV 可播）、音频 `mp3` `wav` `m4a` `aac` `flac` `ogg` `oga` `opus` 直接播放；Host 复用 `/raw` 出口做 HTTP Range（`200` 全量 / `206` 分段 / `416` 越界，补 `HEAD`），可拖动进度条、暂停；可在某一秒加**时间码批注**，点批注卡 seek 到对应时间。单文件上限 **4 GB**，流式读取不整读内存。
+- `tiff` `heic` 等浏览器不认的格式（415 `UNSUPPORTED_PREVIEW` 专属标题「这个格式暂不支持预览」），以及浏览器不支持的编码（HEVC、非 H.264 `mov`，2.5 s 看门狗）统一走错误卡：一句人话 + 转码建议，不黑屏、不永久转圈，批注入口置灰。
+- 图片格式补 `avif` `ico`（原图预览 + 整图批注）。
+
+## 支持格式
+
+批注锚点列说明批注落在哪：文本按**行号区间**、Office/PDF 按**页 + 原文摘录**、表格按**单元格 / 区域**、图片按**整图**、视频/音频按**时间码（秒）**。
+
+| 类型 | 扩展名 | 预览方式 | 批注锚点 | 状态 |
+|---|---|---|---|---|
+| 文本 / 代码 | `.md` `.markdown` `.mdx` `.txt` `.log` `.csv` `.tsv` `.json` `.jsonl` `.yaml` `.yml` `.toml` `.ini` `.cfg` `.conf` `.env` `.properties` 及 `.py` `.js` `.ts` `.tsx` `.jsx` `.vue` `.svelte` `.html` `.css` `.scss` `.xml` `.svg` `.sql` `.sh` `.ps1` `.java` `.c` `.h` `.cpp` `.rs` `.go` `.rb` `.php` `.lua` `.swift` `.kt` 等（共 60 种，另含 `Dockerfile` `Makefile` `README`） | 原文编辑、保存（写回前 `.bak`） | 行号区间 | **v0.2.0** |
+| Word / PowerPoint | `.docx` `.pptx` | 本地转页图 + 透明文字层 | 页 + 原文摘录 | **v0.2.0**（页图 120 DPI，**v0.3.0 提至 240**） |
+| PDF | `.pdf` | 按页渲染 + 文字层 | 页 + 原文摘录 | **v0.2.0**（同上） |
+| Excel | `.xlsx` | DOM 表格（行号列标、网格线、冻结窗格、大表截断） | 单元格 / 区域 | **v0.2.0** |
+| 图片 | `.png` `.jpg` `.jpeg` `.gif` `.webp` `.bmp` | 原图，不重采样 | 整图 | **v0.2.0** |
+| 图片（新增） | `.avif` `.ico` | 原图 | 整图 | 开发中（v0.3.0） |
+| TIFF / HEIC | `.tif` `.tiff` `.heic` | 错误卡：提示转 `png` 后预览 | — | 开发中（v0.3.0） |
+| 视频（可播放） | `.mp4` `.m4v` `.webm` `.ogv` `.mov`（H.264） | 原生播放器 + `/raw` Range 流式（200/206/416）+ `HEAD` | 时间码（秒） | 开发中（v0.3.0） |
+| 视频（浏览器不支持的编码） | 非 H.264 的 `.mov`、HEVC 编码的 `.mp4` 等 | 错误卡：`videoWidth===0` 或 2.5 s 内无元数据即判定，提示转 MP4(H.264) / WebM，不黑屏 | — | 开发中（v0.3.0） |
+| 音频 | `.mp3` `.wav` `.m4a` `.aac` `.flac` `.ogg` `.oga` `.opus` | 原生播放器 + `/raw` Range 流式（200/206/416）+ `HEAD` | 时间码（秒） | 开发中（v0.3.0） |
+| 其他 | 任意 | 明确提示不支持 + 建议（如转 pdf / png） | — | **v0.2.0** |
+
+> 视频 / 音频能否播放取决于**浏览器原生编解码能力**：H.264 + AAC 的 `mp4`、VP9 + Opus 的 `webm` 最稳；H.264 的 `mov` 可播，HEVC 编码或非 H.264 的 `mov` 由客户端看门狗兜底（`loadedmetadata` 后 `videoWidth` 为 0，或 2.5 s 内没有元数据即出错误卡），不会黑屏。`.ogg`/`.oga`/`.opus` 归音频（Ogg Vorbis / Opus）；裸 ADTS `.aac` 在部分 Chromium 下不稳，遇到就按错误卡提示处理。
 
 ## 界面预览
 
@@ -94,6 +119,16 @@ AI 写完一个文件，人打开总会发现细节问题；用聊天一句句�
 
 ![图片也能整图批注：`图片 【意见】…`，不带页号行号。](docs/assets/image-preview.png)
 
+**视频与音频（v0.3.0 新增；下图为设计参考稿，媒体真机截图待后续补）**
+
+| 视频播放器 | 音频卡 |
+|---|---|
+| ![视频预览：16:9 播放器、时间码与倍速工具条，批注按钮带当前时间。](docs/assets/media-video.png) | ![音频预览：波形、进度与元信息卡片，支持时间点批注。](docs/assets/media-audio.png) |
+
+| 加载中 | 编码不支持（给转码建议，不黑屏） | TIFF 不支持（提示转 png） |
+|---|---|---|
+| ![媒体加载态：先出骨架与「正在准备播放…」，不白屏。](docs/assets/media-loading.png) | ![编码不支持：一句人话 + 可折叠详情 + 转码指引，批注入口置灰。](docs/assets/media-error.png) | ![TIFF 不支持：提示转 PNG 后预览，可调系统应用打开。](docs/assets/image-tiff.png) |
+
 **边界与状态**
 
 | 扫描件无文字层 | 加密 / 超大 / 超时 | 大表截断 |
@@ -139,6 +174,7 @@ dsh plugin --profile desktop add "C:\...\dsh-file-review"
    Office/PDF：在页图上选中原文 → 加批注；无文字层时用「＋ 批注本页」兜底。
    表格：点单元格或拖选区域 → 加批注。
    图片：整图批注。
+   视频/音频：直接播放，拖到要说的位置 → 按时间码加批注（点批注卡可 seek 回该秒）。
 4. 点「发给 AI」，确认结构化批注消息进入输入框，可先改再发。
 5. 批注会自动持久化，重开面板 / 刷新页面后还原；也可以导出 `.annotations.md` 归档。
 6. AI 改完文件后，面板提示「内容已更新」，一键刷新即可看到新内容。
@@ -154,6 +190,7 @@ dsh plugin --profile desktop add "C:\...\dsh-file-review"
 | 批注存储 | `<会话工作区>/.dsh-file-review/`（运行时目录，建议加入 `.gitignore`）；上限 **512 KB/文件、500 条批注** |
 | 写回备份 | 覆盖保存前生成同名 `.bak` |
 | 面板尺寸 | 记在浏览器 localStorage |
+| 媒体预览 | 单文件 ≤ **4 GB**，走 Range 流式读取，不整读进内存 |
 | 主题 | 跟随 DSH Web GUI 的深色 / 浅色 |
 | 隔离验收实例 | 用 `DSH_HOME` 指到独立目录 + `dsh web --port <空闲端口>`（见 [docs/install.md](docs/install.md) §4） |
 
@@ -229,8 +266,9 @@ v0.2.0 走 Host `/plugins/dsh-file-review/api/send`，请求失败时面板会�
 | 版本 | 内容 | 状态 |
 |---|---|---|
 | 0.1.0 | 预览 / 编辑 / 批注 / 发给 AI 闭环；docx / xlsx / pptx / pdf / 图片 | 已发布（2026-11-22） |
-| 0.2.0 | 批注持久化、多文件标签（≤8）、快捷键、外部修改提示；CI 升 v5、文档重写、真机截图 | **当前版本**（2026-11-27） |
-| 0.3.0 | 行级 diff 高亮、拖拽打开、批注导出增强 | 计划 |
+| 0.2.0 | 批注持久化、多文件标签（≤8）、快捷键、外部修改提示；CI 升 v5、文档重写、真机截图 | 已发布（2026-11-27） |
+| 0.3.0 | 画质提升（页图 DPI 120→240）、视频与音频预览（Range 流式 + 时间码批注）、`avif`/`ico`、`tiff`/HEVC 友好错误卡 | 已发布（2026-11-28） |
+| 0.4.0 | 行级 diff 高亮、AI 改完原地刷新、拖拽打开、批注导出增强 | 计划 |
 
 ## 文档
 
@@ -238,6 +276,7 @@ v0.2.0 走 Host `/plugins/dsh-file-review/api/send`，请求失败时面板会�
 - [docs/usage.md](docs/usage.md)：完整操作指南与边界
 - [docs/architecture.md](docs/architecture.md)：Host/Client 结构、API、数据模型与构建
 - [docs/troubleshooting.md](docs/troubleshooting.md)：常见问题排查
+- [docs/release-notes-0.3.0.md](docs/release-notes-0.3.0.md)：0.3.0 Release notes
 - [docs/release-notes-0.2.0.md](docs/release-notes-0.2.0.md)：0.2.0 Release notes
 - [SECURITY.md](SECURITY.md)：安全边界与私密漏洞报告
 - [CHANGELOG.md](CHANGELOG.md) / [CONTRIBUTING.md](CONTRIBUTING.md)

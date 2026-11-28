@@ -6,6 +6,7 @@
  * 绝对路径、盘符与系统目录；写回前先备份 `<文件>.bak`，再原子替换。
  */
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createReadStream, existsSync, promises as fsp } from 'node:fs';
@@ -28,7 +29,10 @@ const CLIENT_TIME_ZONE = 'Asia/Shanghai';
 
 /** S2 预览：单文件上限、渲染 DPI、单次最多渲染页数、渲染超时 */
 const MAX_PREVIEW_BYTES = 30 * 1024 * 1024;
-const PREVIEW_DPI = 120;
+/** 音视频走 Range 流式播放，不整体读入内存，单文件上限单独放宽 */
+const MAX_MEDIA_BYTES = 4 * 1024 * 1024 * 1024;
+/** 240 DPI 时 A4 约 2040×2640，覆盖面板 250% 放大仍不糊；按页懒加载，单页约 250 KB */
+const PREVIEW_DPI = 240;
 const MAX_PREVIEW_PAGES = 30;
 const PREVIEW_TIMEOUT_MS = 120_000;
 const PREVIEW_CACHE_ROOT = path.join(os.tmpdir(), 'dsh-file-review-preview');
@@ -55,8 +59,8 @@ const TEXT_EXTENSIONS = new Set([
 const PAGE_EXTENSIONS = new Set(['.docx', '.pptx', '.pdf']);
 /** xlsx 走 Host 解析 + 前端 DOM 表格（行号列标/网格线/原生选字） */
 const SHEET_EXTENSIONS = new Set(['.xlsx']);
-/** S2 可直接展示的图片 */
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']);
+/** S2 可直接展示的图片（浏览器原生解码；tiff/heic 需先转格式） */
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.avif', '.ico']);
 const IMAGE_MIME: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -64,6 +68,29 @@ const IMAGE_MIME: Record<string, string> = {
   '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.bmp': 'image/bmp',
+  '.avif': 'image/avif',
+  '.ico': 'image/x-icon',
+};
+
+/** S3 音视频：浏览器原生播放，Host 只做 Range 透传 */
+const MEDIA_EXTENSIONS = new Set([
+  '.mp4', '.m4v', '.webm', '.ogv', '.mov',
+  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga', '.opus',
+]);
+const MEDIA_MIME: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.mov': 'video/quicktime',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/ogg',
 };
 
 /** 树里默认不展示的目录/文件 */
@@ -108,8 +135,8 @@ interface SessionControllerLike {
   prompt(request: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
 }
 
-/** 文件预览类型：文本 / 图片 / 分页文档（Office、PDF）/ 表格 / 不支持 */
-type PreviewKind = 'text' | 'image' | 'pages' | 'sheet' | 'unsupported';
+/** 文件预览类型：文本 / 图片 / 音视频 / 分页文档（Office、PDF）/ 表格 / 不支持 */
+type PreviewKind = 'text' | 'image' | 'media' | 'pages' | 'sheet' | 'unsupported';
 
 interface PreviewPagePlan {
   index: number;
@@ -388,12 +415,13 @@ function isTextPath(filePath: string): boolean {
   return base.startsWith('dockerfile') || base === 'makefile' || base === 'readme';
 }
 
-/** 判断文件应该走哪种预览：文本 / 图片 / 分页渲染 / 表格 / 不支持 */
+/** 判断文件应该走哪种预览：文本 / 图片 / 音视频 / 分页渲染 / 表格 / 不支持 */
 function previewKindOf(filePath: string): PreviewKind {
   if (isTextPath(filePath)) return 'text';
   const ext = path.extname(filePath).toLowerCase();
   if (SHEET_EXTENSIONS.has(ext)) return 'sheet';
   if (IMAGE_EXTENSIONS.has(ext)) return 'image';
+  if (MEDIA_EXTENSIONS.has(ext)) return 'media';
   if (PAGE_EXTENSIONS.has(ext)) return 'pages';
   return 'unsupported';
 }
@@ -1651,6 +1679,7 @@ function sanitizeAnnotationBlock(value: unknown): Record<string, unknown> | null
   return {
     page,
     label,
+    ...(typeof block.at === 'number' && Number.isFinite(block.at) ? { at: Math.max(0, block.at) } : {}),
     ...(typeof block.sheet === 'string' ? { sheet: block.sheet.slice(0, 200) } : {}),
     ...(typeof block.range === 'string' ? { range: block.range.slice(0, 64) } : {}),
     ...(block.selected === true ? { selected: true } : {}),
@@ -1885,14 +1914,16 @@ async function previewContext(
   const absolute = await resolveWorkspacePath(workspace, url.searchParams.get('path') ?? '', { mustExist: true });
   const stat = await fsp.stat(absolute);
   if (stat.isDirectory()) throw new ReviewError('IS_DIR', '目标是目录', 400);
-  if (stat.size > MAX_PREVIEW_BYTES) {
+  const kind = previewKindOf(absolute);
+  const limit = kind === 'media' ? MAX_MEDIA_BYTES : MAX_PREVIEW_BYTES;
+  if (stat.size > limit) {
     throw new ReviewError(
       'ERR_TOO_LARGE',
-      `文件超过 ${Math.floor(MAX_PREVIEW_BYTES / 1024 / 1024)} MB，暂不支持预览`,
+      `文件超过 ${Math.floor(limit / 1024 / 1024)} MB，暂不支持预览`,
       413,
     );
   }
-  return { absolute, stat, kind: previewKindOf(absolute) };
+  return { absolute, stat, kind };
 }
 
 /** GET /preview：返回预览类型与分页元数据；分页文档由 Host 侧渲染 */
@@ -1902,7 +1933,7 @@ async function handlePreview(ctx: HostContext, url: URL): Promise<unknown> {
   if (kind === 'unsupported') {
     throw new ReviewError(
       'UNSUPPORTED_PREVIEW',
-      '该格式暂不支持预览（S2 支持 docx / xlsx / pptx / pdf / 图片）',
+      '该格式暂不支持预览（支持 docx / xlsx / pptx / pdf、常见图片与音视频；tiff / heic 请先转成 PNG）',
       415,
     );
   }
@@ -1916,6 +1947,21 @@ async function handlePreview(ctx: HostContext, url: URL): Promise<unknown> {
         mime: IMAGE_MIME[ext] ?? 'application/octet-stream',
         size: stat.size,
         sha1: digest,
+      },
+    };
+  }
+  if (kind === 'media') {
+    // 音视频不整读：只返回播放器需要的元信息，字节由 /raw 走 Range 流式读取。
+    // 这里也不能用 sha256ForFile（会读完整个文件），用 size+mtime 做缓存指纹即可。
+    const mime = MEDIA_MIME[ext] ?? 'application/octet-stream';
+    return {
+      ok: true,
+      preview: {
+        kind: 'media',
+        media: mime.startsWith('audio/') ? 'audio' : 'video',
+        mime,
+        size: stat.size,
+        sha1: `media-${stat.size}-${Math.round(stat.mtimeMs)}`,
       },
     };
   }
@@ -2030,18 +2076,99 @@ async function handleTextLayer(ctx: HostContext, url: URL): Promise<unknown> {
   };
 }
 
-/** GET /raw：直接返回图片原文件 */
-async function handleRaw(ctx: HostContext, url: URL, res: ServerResponse): Promise<void> {
-  const { absolute, kind } = await previewContext(ctx, url);
-  if (kind !== 'image') throw new ReviewError('NOT_IMAGE', '该文件不是图片', 400);
+/** HEAD /raw：播放器/浏览器探测长度与类型，不返回正文 */
+async function handleRawHead(ctx: HostContext, url: URL, res: ServerResponse): Promise<void> {
+  const { absolute, stat, kind } = await previewContext(ctx, url);
+  if (kind !== 'image' && kind !== 'media') {
+    throw new ReviewError('NOT_MEDIA', '该文件不是图片或音视频', 400);
+  }
   const ext = path.extname(absolute).toLowerCase();
-  const buffer = await fsp.readFile(absolute);
+  const mime = IMAGE_MIME[ext] ?? MEDIA_MIME[ext] ?? 'application/octet-stream';
   res.writeHead(200, {
-    'content-type': IMAGE_MIME[ext] ?? 'application/octet-stream',
-    'content-length': buffer.length,
+    'content-type': mime,
+    'content-length': stat.size,
+    'accept-ranges': 'bytes',
     'cache-control': 'private, max-age=60',
   });
-  res.end(buffer);
+  res.end();
+}
+
+/** GET /raw：图片原文件 + 音视频 Range 流式读取（200/206/416），供 <img>/<video>/<audio> 直接播放 */
+async function handleRaw(
+  ctx: HostContext,
+  url: URL,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const { absolute, stat, kind } = await previewContext(ctx, url);
+  if (kind !== 'image' && kind !== 'media') {
+    throw new ReviewError('NOT_MEDIA', '该文件不是图片或音视频', 400);
+  }
+  const ext = path.extname(absolute).toLowerCase();
+  const mime = IMAGE_MIME[ext] ?? MEDIA_MIME[ext] ?? 'application/octet-stream';
+  const commonHeaders = {
+    'content-type': mime,
+    'accept-ranges': 'bytes',
+    'cache-control': 'private, max-age=60',
+  };
+
+  const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range.trim() : '';
+  if (!rangeHeader) {
+    res.writeHead(200, { ...commonHeaders, 'content-length': stat.size });
+    await pipeFile(absolute, res);
+    return;
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+  const rangeStart = match?.[1] ?? '';
+  const rangeEnd = match?.[2] ?? '';
+  let start = Number.NaN;
+  let end = Number.NaN;
+  if (match && !(rangeStart === '' && rangeEnd === '')) {
+    if (rangeStart === '') {
+      // bytes=-500：最后 500 字节
+      const suffix = Number.parseInt(rangeEnd, 10);
+      if (Number.isInteger(suffix) && suffix > 0) {
+        start = Math.max(0, stat.size - suffix);
+        end = stat.size - 1;
+      }
+    } else {
+      start = Number.parseInt(rangeStart, 10);
+      end = rangeEnd === '' ? stat.size - 1 : Number.parseInt(rangeEnd, 10);
+    }
+  }
+  if (
+    !Number.isInteger(start) || !Number.isInteger(end)
+    || start < 0 || end < start || start >= stat.size
+  ) {
+    res.writeHead(416, { 'content-range': `bytes */${stat.size}` });
+    res.end();
+    return;
+  }
+  end = Math.min(end, stat.size - 1);
+  res.writeHead(206, {
+    ...commonHeaders,
+    'content-length': end - start + 1,
+    'content-range': `bytes ${start}-${end}/${stat.size}`,
+  });
+  await pipeFile(absolute, res, start, end);
+}
+
+/** 分块写文件；客户端慢时等 drain，避免把大视频整个缓冲进内存 */
+async function pipeFile(
+  filePath: string,
+  res: ServerResponse,
+  start?: number,
+  end?: number,
+): Promise<void> {
+  const stream = createReadStream(filePath, start === undefined ? undefined : { start, end });
+  stream.on('error', () => {
+    if (typeof res.destroy === 'function') res.destroy();
+  });
+  for await (const chunk of stream) {
+    if (!res.write(chunk)) await once(res, 'drain');
+  }
+  res.end();
 }
 
 // ---------------------------------------------------------------------------
@@ -2115,8 +2242,12 @@ export function apply(ctx: HostContext): void {
               writeJson(res, 200, await handleTextLayer(ctx, url));
               return;
             }
+            if (method === 'HEAD' && route === '/raw') {
+              await handleRawHead(ctx, url, res);
+              return;
+            }
             if (method === 'GET' && route === '/raw') {
-              await handleRaw(ctx, url, res);
+              await handleRaw(ctx, url, req, res);
               return;
             }
             throw new ReviewError('NOT_FOUND', `未知接口：${method} ${route}`, 404);

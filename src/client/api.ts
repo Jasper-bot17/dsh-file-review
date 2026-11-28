@@ -12,7 +12,7 @@ export interface TreeEntry {
   editable: boolean;
 }
 
-export type PreviewKind = 'text' | 'image' | 'pages' | 'sheet' | 'unsupported';
+export type PreviewKind = 'text' | 'image' | 'media' | 'pages' | 'sheet' | 'unsupported';
 
 export interface SheetSummary {
   index: number;
@@ -32,6 +32,8 @@ export interface PreviewPage {
 export interface PreviewInfo {
   kind: PreviewKind;
   mime?: string;
+  /** media：video 用 <video>，audio 用 <audio> */
+  media?: 'video' | 'audio';
   size?: number;
   sha1?: string;
   key?: string;

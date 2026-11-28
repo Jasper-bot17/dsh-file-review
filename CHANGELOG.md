@@ -2,6 +2,45 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 未发布
+
+在 v0.2.0 基线上解决两件影响体感的事：页图放大后糊、视频/音频没法看。
+
+### 新增
+
+- **视频与音频预览**：新增 `media` 预览类型，复用 `/raw` 出口做 HTTP Range 流式（无 Range 回 `200`；`bytes=a-b` / `bytes=-n` 回 `206 + Content-Range + Accept-Ranges`；越界回 `416 + bytes */size`；补 `HEAD`）；视频 `mp4` / `m4v` / `webm` / `ogv` / `mov`（H.264 MOV 正常播放）、音频 `mp3` / `wav` / `m4a` / `aac` / `flac` / `ogg` / `oga` / `opus`；前端原生 `<video>/<audio>` + `preload="metadata"`，可拖动进度条、暂停；单文件上限 **4 GB**，流式读取不整读内存
+- **时间码批注**：播放器工具栏「＋ 批注视频/音频 00:42」，批注带 `at` 秒数、卡片类型显示「媒体」，点批注卡 seek 到对应秒；消息 `1. 视频 00:42 【意见】…`，不带【原文】、不出现 `L0-0`
+- **更多图片格式**：`avif`、`ico` 走原图预览 + 整图批注（扩展名白名单与 MIME 已补）
+- **格式支持矩阵**：README 新增矩阵（文本/代码 60 种扩展名、Office/PDF、xlsx、图片、媒体、不支持格式的处理与批注锚点）
+
+### 变更
+
+- **预览画质**：页图渲染 DPI 从固定 120 提升到 **240**（docx 2040×2640 / pptx 3200×1801 / pdf 2040×2640，A4 约 2040px 宽），放大到 250% 也清晰；预览缓存 key 带 DPI，切档不复用旧缓存（旧 120 缓存目录不会被复用）
+- 图片预览始终走原图，不做重采样
+- 媒体文件同样受「工作区路径锁死 + 本机请求」校验，与文档预览一致
+
+### 修复
+
+- `tiff` / `heic` 等浏览器不认识的格式（415 `UNSUPPORTED_PREVIEW` 专属标题「这个格式暂不支持预览」+「tiff / heic 请先转成 PNG」）、HEVC / 非 H.264 `mov` 等浏览器不支持的编码，不再黑屏或永久转圈，统一走错误卡：一句人话 + 可折叠详情 + 重新加载 + 转码建议，批注入口置灰
+- HEVC 兜底：`loadedmetadata` 后 `videoWidth === 0`，或 2.5 s 看门狗发现 `readyState === 0` 且 `duration` 为空，即判不支持（不按 `ftyp` 容器 brand 预拦截，H.264 `mov` 不再误杀）
+- 媒体时间码批注刷新后丢失 `at`：Host `sanitizeAnnotationBlock` 白名单保留有限数 `at`（`Math.max(0, at)`），并补 Host 回归（PUT `block.at=3` → GET 断言读回 3）
+
+### 验证记录
+
+- `npm run verify` 全绿：契约 **12/12**、Host **93/93**、client **52/52**、**EXIT=0**
+- 产物：`lib/index.js` **85,688 B** SHA256 `F23F7B636B0ED44D064945F06FA42BF24758D5FF08C6CD2E9B995CD55A3810EB`；`lib/client.js` **128,270 B** SHA256 `B5B5C81B01BE94ECA745F9B315D7133C276B0CD97CF04F266A5BBA5E960DC8DB`
+- DPI 实测（Coding）：docx 2040×2640 / 252 KB / 8.6 s，pptx 3200×1801 / 80 KB / 9.4 s，pdf 2040×2640 / 309 KB / 2.8 s（Kit 冷启动占大头；渲染器 16 MiB 像素缓冲上限，A4 实际封顶约 416 DPI）
+- 媒体 Range：`/raw` 200/206/416、`HEAD`、后缀 range、越界、背压经 Searching 逐行核验通过（核验报告 `预览画质与媒体预览-核验.md`）
+- Claw 隔离实例验收（2026-11-28）：HEVC 打开 **234 ms** 出「无法播放这个文件 / 浏览器不支持它的编码」错误卡、批注按钮 `disabled=true` 且导出/发送同步置灰；TIFF **117 ms** 出专属「这个格式暂不支持预览 / 转成 PNG」；h264 `.mp4`、`.mov` 回归正常（duration 5、640×360、readyState 4）；时间码批注刷新前「视频 00:03 / 媒体」卡片与 seek 正常；120 vs 240 同页对比 V-22 由 Design 判过（细线单根实线、8 pt 字缘无伪彩），证据 `dpi-hairline-compare.png` / `dpi-compare-crop.png`；「`at` 刷新保留」待 Claw 重启隔离实例复测
+
+### 已知限制
+
+- 时间码批注以秒为单位（精度约 ±1 s），毫秒级定位不做
+- 视频/音频能否播放取决于浏览器原生编解码能力：H.264 `mov` 可播，HEVC 等不保证，由客户端看门狗（无帧 / 2.5 s 无元数据）判不出帧即出错误卡
+- `tiff` / `heic` 不做内嵌转码，只提示转换
+- 媒体单文件上限 4 GB
+- 不读 `ftyp` 容器 brand 做 Host 侧预判（会误杀 H.264 `mov`）；HEVC / 无帧情况统一由客户端 `loadedmetadata` + 2.5 s 看门狗判定
+
 ## [0.2.0] - 2026-11-27
 
 在 v0.1.0 闭环上补齐日常使用最痛的三块：批注不会丢、多文件能对照、文件被改能及时发现。

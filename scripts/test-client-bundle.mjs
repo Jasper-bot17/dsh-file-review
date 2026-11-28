@@ -430,6 +430,30 @@ check(
   'bundle 含外部修改提示与 Ctrl/Cmd+Enter',
   code.includes('内容已更新') && code.includes('ctrlKey') && code.includes('"Enter"'),
 );
+// v0.3.0：音视频播放器与编码兜底
+check(
+  'bundle 含音视频播放器与编码兜底提示',
+  code.includes('dsh-fr-media-wrap') &&
+    code.includes('dsh-fr-video') &&
+    code.includes('dsh-fr-audio') &&
+    code.includes('浏览器不支持它的编码'),
+);
+check(
+  'bundle 用 videoWidth/readyState 看门狗兜底 HEVC 黑屏',
+  code.includes('videoWidth') && code.includes('readyState') && code.includes('setMediaError'),
+);
+check(
+  'bundle 的 tiff/heic 不支持态有专属标题与提示',
+  code.includes('UNSUPPORTED_PREVIEW') && code.includes('这个格式暂不支持预览'),
+);
+check(
+  'bundle 的不支持提示含 tiff/heic 转 PNG',
+  code.includes('tiff') && code.includes('heic'),
+);
+check(
+  'bundle 含媒体时间码批注与卡片类型',
+  code.includes('媒体') && code.includes('formatMediaTime') && code.includes('annotationKindLabel'),
+);
 
 for (const name of ok) console.log(`  ok   ${name}`);
 for (const name of failures) console.log(`  FAIL ${name}`);

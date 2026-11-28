@@ -100,6 +100,7 @@ function splitUiError(value: string | null): { code: string; message: string; ti
     TIMEOUT: '转换超时',
     NO_RENDERER: '当前环境缺少 Office 转换组件',
     NO_TEXT_LAYER: '文字层暂不可用',
+    UNSUPPORTED_PREVIEW: '这个格式暂不支持预览',
     CONVERT_FAILED: 'Office 文档转换失败',
     UNSAFE_XML: '文件结构不安全，已拒绝解析',
     BAD_XML_ENTITY: '文件结构不合法，已拒绝解析',
@@ -118,6 +119,7 @@ function splitUiError(value: string | null): { code: string; message: string; ti
     TIMEOUT: '转换时间过长，已停止；可以点重试，或换一个文件。',
     NO_RENDERER: '宿主里没有找到 LibreOffice Kit，请把环境信息发给维护者。',
     NO_TEXT_LAYER: '文字层组件加载失败；预览和整页批注仍可用，可以点重试。',
+    UNSUPPORTED_PREVIEW: 'tiff / heic 请先转成 PNG；音视频请用 MP4（H.264）或 WebM。',
     CONVERT_FAILED: '文件可能已损坏，或格式不受支持；可以点重试。',
     UNSAFE_XML: '文件里有外部实体/DOCTYPE，出于安全考虑不解析。',
     BAD_XML_ENTITY: '文件里有超出 Unicode 范围的字符实体；可能不是真正的 Office 文件。',
@@ -209,10 +211,21 @@ function annotationKindLabel(annotation: Annotation): string {
   if (annotation.block) {
     if (annotation.block.label === '图片') return '整图';
     if (annotation.block.label.startsWith('第')) return '整页';
+    if (annotation.block.label.startsWith('视频') || annotation.block.label.startsWith('音频')) return '媒体';
     return '区域';
   }
   if (annotation.page !== undefined) return `第${annotation.page}页 · 选中文字`;
   return `L${annotation.from}${annotation.from === annotation.to ? '' : `-${annotation.to}`}`;
+}
+
+/** 媒体时间码：00:42 / 1:02:03 */
+function formatMediaTime(seconds: number): string {
+  const total = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const rest = total % 60;
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(rest)}` : `${pad(minutes)}:${pad(rest)}`;
 }
 
 function parseCellRef(ref: string): { row: number; col: number } | null {
@@ -265,6 +278,10 @@ export function FileReviewPanel(): JSX.Element | null {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewCancelled, setPreviewCancelled] = useState(false);
+  /** 浏览器解不了这个音视频编码时给一句人话，而不是黑屏 */
+  const [mediaError, setMediaError] = useState(false);
+  /** 当前播放位置（秒），用于时间码批注 */
+  const [mediaTime, setMediaTime] = useState(0);
   const [pageIndex, setPageIndex] = useState(1);
   const [zoom, setZoom] = useState(1);
   const [textLayer, setTextLayer] = useState<TextLayerInfo | null>(null);
@@ -290,6 +307,7 @@ export function FileReviewPanel(): JSX.Element | null {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const sheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const mediaRef = useRef<HTMLMediaElement | null>(null);
   const previewAbort = useRef<AbortController | null>(null);
   const textLayerAbort = useRef<AbortController | null>(null);
   const sheetAbort = useRef<AbortController | null>(null);
@@ -423,6 +441,8 @@ export function FileReviewPanel(): JSX.Element | null {
       setPreview(null);
       setPreviewError(null);
       setPreviewCancelled(false);
+      setMediaError(false);
+      setMediaTime(0);
       setTextLayer(null);
       setTextLayerError(null);
       setSheet(null);
@@ -439,7 +459,7 @@ export function FileReviewPanel(): JSX.Element | null {
       }
       if (meta.previewKind === 'unsupported') {
         setPreviewLoading(false);
-        setPreviewError('UNSUPPORTED_PREVIEW|该格式暂不支持预览（支持 docx / xlsx / pptx / pdf / 图片）');
+        setPreviewError('UNSUPPORTED_PREVIEW|该格式暂不支持预览（支持 docx / xlsx / pptx / pdf、常见图片与音视频；tiff / heic 请先转成 PNG）');
         return;
       }
       setPreviewLoading(true);
@@ -736,6 +756,9 @@ export function FileReviewPanel(): JSX.Element | null {
   const pagePosition = Math.max(0, previewPages.findIndex((page) => page.index === (currentPage?.index ?? 0)));
   const blockTarget = useMemo<AnnotationBlock | null>(() => {
     if (preview?.kind === 'image') return { page: 1, label: '图片' };
+    if (preview?.kind === 'media') {
+      return { page: 1, label: preview.media === 'audio' ? '音频' : '视频' };
+    }
     if (preview?.kind === 'sheet') {
       const name = sheet?.name ?? preview.sheets?.find((item) => item.index === sheetIndex)?.name ?? '表格';
       return { page: sheetIndex + 1, label: `工作表「${name}」`, sheet: name };
@@ -878,6 +901,22 @@ export function FileReviewPanel(): JSX.Element | null {
     const toRef = `${columnLabel(sheetSelection.toCol)}${sheetSelection.toRow}`;
     return `工作表「${sheet.name}」 ${fromRef === toRef ? fromRef : `${fromRef}:${toRef}`}`;
   }, [preview?.kind, sheet, sheetSelection]);
+
+  // HEVC 这类编码在 Chromium 里可能既不触发 error、也不加载元数据（duration=null, readyState=0），
+  // 只表现为黑屏；用一个看门狗兜底，按“没有视频帧/没有元数据”判不支持，而不是拦容器格式。
+  useEffect(() => {
+    if (preview?.kind !== 'media' || mediaError) return;
+    const timer = window.setTimeout(() => {
+      const media = mediaRef.current;
+      if (!media) return;
+      const noFrame =
+        preview.media === 'video' && 'videoWidth' in media && (media as HTMLVideoElement).videoWidth === 0;
+      const noMetadata =
+        media.readyState === 0 && (media.duration === null || Number.isNaN(media.duration));
+      if (noFrame || noMetadata) setMediaError(true);
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [preview?.kind, preview?.media, preview?.sha1, mediaError]);
 
   // 错误卡统一走 splitUiError：一句人话 + 细节可折叠，标题/提示不再写死
   const previewUiError = useMemo(() => (previewError ? splitUiError(previewError) : null), [previewError]);
@@ -1128,15 +1167,16 @@ export function FileReviewPanel(): JSX.Element | null {
     showToast('已添加批注');
   }, [composer, composerText, file, showToast]);
 
-  const addBlockAnnotation = useCallback(() => {
-    if (!file || !blockTarget) return;
+  const addBlockAnnotation = useCallback((override?: AnnotationBlock) => {
+    const target = override ?? blockTarget;
+    if (!file || !target) return;
     setComposer({
       x: 24,
       y: 104,
-      from: blockTarget.page,
-      to: blockTarget.page,
-      quote: blockTarget.label,
-      block: blockTarget,
+      from: target.page,
+      to: target.page,
+      quote: target.label,
+      block: target,
     });
     setComposerText('');
   }, [blockTarget, file]);
@@ -1166,6 +1206,14 @@ export function FileReviewPanel(): JSX.Element | null {
 
   const jumpTo = useCallback((annotation: Annotation) => {
     if (annotation.block) {
+      if (preview?.kind === 'media' && typeof annotation.block.at === 'number') {
+        const media = mediaRef.current;
+        if (media) {
+          media.currentTime = annotation.block.at;
+          void media.play().catch(() => undefined);
+        }
+        return;
+      }
       if (preview?.kind === 'sheet') {
         setSheetIndex(Math.max(0, annotation.block.page - 1));
         const [startRef, endRef] = (annotation.block.range ?? '').split(':');
@@ -1548,7 +1596,7 @@ export function FileReviewPanel(): JSX.Element | null {
                     ＋
                   </button>
                   <span className="dsh-fr-divider" />
-                  <button className="dsh-fr-btn" onClick={addBlockAnnotation}>
+                  <button className="dsh-fr-btn" onClick={() => addBlockAnnotation()}>
                     ＋ 批注本页
                   </button>
                   {preview.truncated ? (
@@ -1570,10 +1618,28 @@ export function FileReviewPanel(): JSX.Element | null {
                   <span className="dsh-fr-spacer" />
                   <button
                     className="dsh-fr-btn"
-                    onClick={addBlockAnnotation}
+                    onClick={() => addBlockAnnotation()}
                     disabled={!sheet || sheetLoading || Boolean(sheetError)}
                   >
                     ＋ 批注本表
+                  </button>
+                </>
+              ) : preview?.kind === 'media' ? (
+                <>
+                  <span className="dsh-fr-muted">
+                    {preview.mime} · {formatBytes(preview.size ?? file.size)} · {formatMediaTime(mediaTime)}
+                  </span>
+                  <span className="dsh-fr-spacer" />
+                  <button
+                    className="dsh-fr-btn"
+                    onClick={() => addBlockAnnotation({
+                      page: 1,
+                      label: `${preview.media === 'audio' ? '音频' : '视频'} ${formatMediaTime(mediaTime)}`,
+                      at: mediaTime,
+                    })}
+                    disabled={mediaError}
+                  >
+                    ＋ 批注{preview.media === 'audio' ? '音频' : '视频'} {formatMediaTime(mediaTime)}
                   </button>
                 </>
               ) : preview?.kind === 'image' ? (
@@ -1582,7 +1648,7 @@ export function FileReviewPanel(): JSX.Element | null {
                     {preview.mime} · {formatBytes(preview.size ?? file.size)}
                   </span>
                   <span className="dsh-fr-spacer" />
-                  <button className="dsh-fr-btn" onClick={addBlockAnnotation}>
+                  <button className="dsh-fr-btn" onClick={() => addBlockAnnotation()}>
                     ＋ 批注图片
                   </button>
                 </>
@@ -1646,6 +1712,63 @@ export function FileReviewPanel(): JSX.Element | null {
                       重试
                     </button>
                   </div>
+                ) : preview?.kind === 'media' ? (
+                  mediaError ? (
+                    <div className="dsh-fr-preview-error">
+                      <div className="dsh-fr-preview-error-title">无法播放这个文件</div>
+                      <div className="dsh-fr-preview-error-hint">
+                        浏览器不支持它的编码。可以转成 MP4（H.264）或 WebM 后重试，或用系统播放器打开。
+                      </div>
+                      <details className="dsh-fr-error-details">
+                        <summary>查看技术详情</summary>
+                        <pre>{`${preview.mime ?? '未知类型'} · 编码不受当前浏览器支持`}</pre>
+                      </details>
+                      <button
+                        className="dsh-fr-btn"
+                        onClick={() => {
+                          setMediaError(false);
+                          const media = mediaRef.current;
+                          if (media) {
+                            media.load();
+                            void media.play().catch(() => undefined);
+                          }
+                        }}
+                      >
+                        重新加载
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="dsh-fr-media-wrap">
+                      {preview.media === 'audio' ? (
+                        <audio
+                          ref={(element) => {
+                            mediaRef.current = element;
+                          }}
+                          className="dsh-fr-audio"
+                          controls
+                          preload="metadata"
+                          src={rawUrl(sessionId, file.path, preview.sha1 ?? file.sha1)}
+                          onTimeUpdate={(event) => setMediaTime(event.currentTarget.currentTime)}
+                          onError={() => setMediaError(true)}
+                        />
+                      ) : (
+                        <video
+                          ref={(element) => {
+                            mediaRef.current = element;
+                          }}
+                          className="dsh-fr-video"
+                          controls
+                          preload="metadata"
+                          src={rawUrl(sessionId, file.path, preview.sha1 ?? file.sha1)}
+                          onTimeUpdate={(event) => setMediaTime(event.currentTarget.currentTime)}
+                          onLoadedMetadata={(event) => {
+                            if (event.currentTarget.videoWidth === 0) setMediaError(true);
+                          }}
+                          onError={() => setMediaError(true)}
+                        />
+                      )}
+                    </div>
+                  )
                 ) : preview?.kind === 'image' ? (
                   <div className="dsh-fr-image-wrap">
                     <img

@@ -71,7 +71,7 @@ Client 不直接碰文件系统，也不自己判断路径安全——安全判�
 | GET | `/api/render` | 按页返回 PNG 页图 |
 | GET | `/api/document` | 返回缓存 PDF（Office 先转换，PDF 原样） |
 | GET | `/api/textlayer` | 某页的归一化文字块坐标（供透明文字层） |
-| GET | `/api/raw` | 原样返回图片字节 |
+| GET | `/api/raw` | 图片原样字节；视频 / 音频二进制（`Range` 200 / 206 / 416，补 `HEAD`，单文件 ≤ 4 GB） |
 | GET / PUT | `/api/annotations` | v0.2.0：读 / 写当前文件的持久化批注（存储位置由 Host 从会话工作区推导） |
 
 错误统一返回 JSON：`{ code, message, detail? }`，常用 code 见 §5。
@@ -138,6 +138,7 @@ Client 不直接碰文件系统，也不自己判断路径安全——安全判�
 | `BAD_WORKSPACE` | 403 | 盘根当工作区、工作区外路径 |
 | `FORBIDDEN` | 403 | 不是本机 DSH GUI 的请求（`isTrustedRequest` 拒绝） |
 | `CONFLICT` | 409 | 文件内容已被外部修改，拒绝覆盖（**仅 `PUT /api/file`**；批注写入不会 409） |
+| `UNSUPPORTED_PREVIEW` | 415 | `tiff` / `heic` 等浏览器不认识的格式（client 有专属标题「这个格式暂不支持预览 / tiff、heic 请先转成 PNG」） |
 | `ERR_ENCRYPTED_FILE` | 422 | 加密文档 / PDF，无法预览 |
 | `TOO_LARGE` | 413 | 超出大小上限（文件内容 > 2 MB、批注 JSON > 512 KB、批注消息超长） |
 | `ERR_TOO_LARGE` | 413 | 预览文件超过 30 MB（仅 `/api/preview` 路径，client 有专门文案） |

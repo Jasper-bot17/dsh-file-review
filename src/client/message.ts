@@ -26,6 +26,8 @@ export interface AnnotationBlock {
   label: string;
   sheet?: string;
   range?: string;
+  /** 视频/音频时间码批注：跳转与卡片定位用的秒数 */
+  at?: number;
   /** UI 选中态标记；块批注消息一律不带【原文】（Design 约定） */
   selected?: boolean;
 }
